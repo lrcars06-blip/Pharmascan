@@ -10,6 +10,7 @@ export default function PharmaSection() {
   const [sugg, setSugg] = useState([]);
   const [status, setStatus] = useState('idle'); // idle|loading|done|error
   const [pharmas, setPharmas] = useState([]);
+  const [radius, setRadius] = useState(5000);
   const [label, setLabel] = useState('');
   const picked = useRef(null);
 
@@ -56,9 +57,9 @@ export default function PharmaSection() {
     if (!geo) return setStatus('error');
     
     try {
-      const pharmacies = await fetchPharmacies(geo.lat, geo.lon);
-      if (!pharmacies) throw new Error('Pas de réponse');
-      setPharmas(pharmacies);
+      const { list, radius: usedRadius } = await fetchPharmacies(geo.lat, geo.lon);
+      setPharmas(list);
+      setRadius(usedRadius);
       setStatus('done');
     } catch (e) {
       console.error('Erreur pharmacies:', e);
@@ -100,17 +101,25 @@ export default function PharmaSection() {
 
       {status === 'done' && (
         <div className="card">
-          <p className="lbl" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>Pharmacies à {label}</p>
-          {pharmas.length === 0 && <p className="note">Aucune pharmacie trouvée dans la base ouverte pour cette zone.</p>}
+          <p className="lbl" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+            Pharmacies à {label}{radius > 5000 ? ` (rayon élargi à ${Math.round(radius / 1000)} km)` : ''}
+          </p>
+          {pharmas.length === 0 && <p className="note">Aucune pharmacie trouvée dans un rayon de 30 km autour de cette commune. Le 3237 reste votre meilleur recours.</p>}
           {pharmas.map((p, i) => (
             <div className="pharma-item" key={i}>
               <span className="pin"><Pin size={18} stroke="#085041" /></span>
-              <div className="info"><div className="n">{p.name}</div><div className="a">{p.addr || label}</div></div>
+              <div className="info">
+                <div className="n">{p.name}</div>
+                <div className="a">
+                  {p.addr || label}
+                  {p.dist != null && <span style={{ color: 'var(--faint)' }}> · {p.dist < 1 ? `${Math.round(p.dist * 1000)} m` : `${p.dist.toFixed(1)} km`}</span>}
+                </div>
+              </div>
               {p.phone && <a className="act" href={`tel:${p.phone.replace(/\s/g, '')}`} aria-label="Appeler"><Phone size={15} stroke="#1C1D1B" /></a>}
               <a className="act" href={mapUrl(p.lat, p.lon)} target="_blank" rel="noreferrer" aria-label="Itinéraire"><Chevron size={16} stroke="#1C1D1B" /></a>
             </div>
           ))}
-          {pharmas.length > 0 && <p className="note">Données OpenStreetMap. L'itinéraire pointe vers l'adresse réelle de chaque officine.</p>}
+          {pharmas.length > 0 && <p className="note">Données OpenStreetMap, triées par distance. L'itinéraire pointe vers l'adresse réelle de chaque officine. La recherche fonctionne pour toutes les communes de France.</p>}
         </div>
       )}
     </section>

@@ -149,7 +149,44 @@ export async function cityAutocomplete(query) {
   return items.slice(0, 8);
 }
 
+// Distance en km entre deux points GPS (formule de Haversine)
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Recherche progressive : 5 km, puis 15 km, puis 30 km si aucune pharmacie.
+// Couvre ainsi toutes les communes de France, y compris les villages.
 export async function fetchPharmacies(lat, lon) {
-  const list = await j(`/api/pharmacies?lat=${lat}&lon=${lon}`);
-  return list.sort((a, b) => (a.lat - lat) ** 2 + (a.lon - lon) ** 2 - ((b.lat - lat) ** 2 + (b.lon - lon) ** 2)).slice(0, 12);
+  const RAYONS = [5000, 15000, 30000];
+  for (const radius of RAYONS) {
+    try {
+      const list = await j(`/api/pharmacies?lat=${lat}&lon=${lon}&radius=${radius}`);
+      if (Array.isArray(list) && list.length > 0) {
+        const enriched = list
+          .map((p) => ({ ...p, dist: distanceKm(lat, lon, p.lat, p.lon) }))
+          .sort((a, b) => a.dist - b.dist)
+          .slice(0, 15);
+        return { list: enriched, radius };
+      }
+    } catch (e) {
+      // dernier rayon : on propage l'erreur, sinon on élargit
+      if (radius === RAYONS[RAYONS.length - 1]) throw e;
+    }
+  }
+  return { list: [], radius: RAYONS[RAYONS.length - 1] };
+}
+
+// --- Conseil IA parapharmacie ---
+export async function conseilIA(message, history) {
+  const r = await fetch('/api/conseil', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
+  });
+  if (!r.ok) throw new Error('conseil ' + r.status);
+  return r.json();
 }

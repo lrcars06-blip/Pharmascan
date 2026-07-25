@@ -11,7 +11,9 @@ export default async function handler(req, res) {
   const { lat, lon } = req.query;
   if (!lat || !lon) return res.status(400).json({ error: 'lat/lon requis' });
 
-  const q = `[out:json][timeout:25];(node["amenity"="pharmacy"](around:4000,${lat},${lon});way["amenity"="pharmacy"](around:4000,${lat},${lon}););out center;`;
+  // Rayon paramétrable : les villages sans pharmacie élargissent la recherche.
+  const radius = Math.min(Math.max(parseInt(req.query.radius, 10) || 5000, 1000), 30000);
+  const q = `[out:json][timeout:25];(node["amenity"="pharmacy"](around:${radius},${lat},${lon});way["amenity"="pharmacy"](around:${radius},${lat},${lon}););out center;`;
 
   for (const ep of OVERPASS) {
     try {

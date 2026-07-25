@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense } from 'react';
 import { searchParapharmacie, getPrixIndicatif } from '../lib/api.js';
 import { Scan, Shield, Help } from '../lib/icons.jsx';
+import ConseilIA from './ConseilIA.jsx';
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner.jsx'));
 
@@ -9,6 +10,7 @@ function cleanTags(tags) {
 }
 
 export default function ParaSection() {
+  const [tab, setTab] = useState('scan'); // 'scan' | 'conseil'
   const [code, setCode] = useState('');
   const [status, setStatus] = useState('idle'); // idle|loading|found|notfound|error
   const [product, setProduct] = useState(null);
@@ -44,10 +46,28 @@ export default function ParaSection() {
   const ing = product ? (product.ingredients_text_fr || product.ingredients_text || '') : '';
   const fmt = (v) => v.toFixed(2).replace('.', ',');
 
+  const tabBtn = (active, color) => ({
+    flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer',
+    fontSize: 13, fontWeight: 600,
+    background: active ? '#fff' : 'transparent',
+    color: active ? color : 'var(--muted)',
+    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+    transition: 'all 0.2s',
+  });
+
   return (
     <section>
-      <h1 className="title">Produit de parapharmacie</h1>
-      <p className="sub">Scannez le code-barres pour voir la composition et les allergènes.</p>
+      <h1 className="title">Parapharmacie</h1>
+      <p className="sub">Scannez un produit ou demandez conseil à l'assistant.</p>
+
+      {/* Sous-onglets */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, background: 'var(--surface)', borderRadius: 12, padding: 4 }}>
+        <button onClick={() => setTab('scan')} style={tabBtn(tab === 'scan', 'var(--teal-ink)')}>📷 Scanner</button>
+        <button onClick={() => setTab('conseil')} style={tabBtn(tab === 'conseil', 'var(--teal-ink)')}>🤖 Conseil IA</button>
+      </div>
+
+      {tab === 'conseil' && <ConseilIA />}
+      {tab === 'scan' && (<>
 
       <button className="scanbtn" onClick={() => setScanning(true)}>
         <Scan stroke="#fff" /> Scanner un produit
@@ -100,6 +120,7 @@ export default function ParaSection() {
           )}
         </div>
       )}
+      </>)}
     </section>
   );
 }

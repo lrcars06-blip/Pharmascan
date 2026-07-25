@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, lazy, Suspense } from 'react';
 import { searchMedicaments, getGeneriques, medAutocomplete, noAccents, debounce } from '../lib/api.js';
 import { addMed } from '../lib/storage.js';
 import { Suggest, Disclaimer } from './Common.jsx';
@@ -27,7 +27,9 @@ export default function MedSection() {
   const [added, setAdded] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [lastCode, setLastCode] = useState(''); // code scanné qui n'a pas abouti
+  const searchSeq = useRef(0); // ignore les réponses de recherches obsolètes
 
+  // Debounce court (200 ms) pour des suggestions plus réactives
   const debouncedAutocomplete = useCallback(
     debounce(async (v) => {
       if (v.trim().length >= 2) {
@@ -35,7 +37,7 @@ export default function MedSection() {
       } else {
         setSugg([]);
       }
-    }, 300),
+    }, 200),
     []
   );
 
@@ -54,8 +56,10 @@ export default function MedSection() {
     if (!term || term.length < 2) { setStatus('idle'); return; }
     setSugg([]);
     setStatus('loading');
+    const seq = ++searchSeq.current;
     try {
       const { list: results, mode, digits } = await searchMedicaments(term);
+      if (seq !== searchSeq.current) return; // une recherche plus récente a pris le relais
 
       // EAN lu au scan → pas un code médicament connu
       if (mode === 'ean') {
@@ -76,6 +80,7 @@ export default function MedSection() {
       setList(results);
       setStatus('list');
     } catch (e) {
+      if (seq !== searchSeq.current) return;
       console.error('Erreur recherche:', e);
       setStatus('error');
     }

@@ -12,6 +12,7 @@
     "start": "concurrently -n SERVER,WEB -c green,cyan \"npm:server\" \"npm:dev\""
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.22.0",
     "express": "^4.19.2",

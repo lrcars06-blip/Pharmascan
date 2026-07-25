@@ -3,6 +3,7 @@ import MedSection from './components/MedSection.jsx';
 import ParaSection from './components/ParaSection.jsx';
 import PharmaSection from './components/PharmaSection.jsx';
 import ArmoireSection from './components/ArmoireSection.jsx';
+import Welcome, { introDejaVue } from './components/Welcome.jsx';
 import { Pill, Box } from './lib/icons.jsx';
 
 const TABS = [
@@ -29,7 +30,10 @@ function TabIcon({ id }) {
 
 export default function App() {
   const [tab, setTab] = useState('med');
+  const [showIntro, setShowIntro] = useState(() => !introDejaVue());
   const Active = TABS.find((t) => t.id === tab).Comp;
+
+  if (showIntro) return <Welcome onStart={() => setShowIntro(false)} />;
 
   return (
     <div className="app">

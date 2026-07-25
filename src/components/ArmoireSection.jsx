@@ -9,6 +9,8 @@ const CATEGORIES = [
   { id: 'digestion', label: 'Digestion', icon: '🤢' },
   { id: 'allergie', label: 'Allergie', icon: '🤧' },
   { id: 'ordonnance', label: 'Ordonnance', icon: '📋' },
+  { id: 'soin', label: 'Soin & Crème', icon: '🧴' },
+  { id: 'complement', label: 'Complément', icon: '💚' },
   { id: 'autre', label: 'Autre', icon: '📦' },
 ];
 

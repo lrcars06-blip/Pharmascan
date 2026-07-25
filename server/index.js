@@ -9,6 +9,7 @@
    En dev, Vite proxie /api -> http://localhost:8787 (voir vite.config.js)
    ============================================================ */
 import express from 'express';
+import { getConseil } from '../api/_lib/conseil.js';
 
 const app = express();
 const PORT = process.env.PORT || 8787;
@@ -95,10 +96,12 @@ app.get('/api/communes', async (req, res) => {
 });
 
 // --- Pharmacies (OpenStreetMap / Overpass) ---
+// Rayon paramétrable : les villages sans pharmacie élargissent la recherche.
 app.get('/api/pharmacies', async (req, res) => {
   const { lat, lon } = req.query;
   if (!lat || !lon) return res.status(400).json({ error: 'lat/lon requis' });
-  const q = `[out:json][timeout:25];(node["amenity"="pharmacy"](around:4000,${lat},${lon});way["amenity"="pharmacy"](around:4000,${lat},${lon}););out center;`;
+  const radius = Math.min(Math.max(parseInt(req.query.radius, 10) || 5000, 1000), 30000);
+  const q = `[out:json][timeout:25];(node["amenity"="pharmacy"](around:${radius},${lat},${lon});way["amenity"="pharmacy"](around:${radius},${lat},${lon}););out center;`;
   for (const ep of OVERPASS) {
     try {
       const data = await getJson(ep, {
@@ -117,6 +120,20 @@ app.get('/api/pharmacies', async (req, res) => {
     } catch (e) { /* essaie le miroir suivant */ }
   }
   res.status(502).json({ error: 'Overpass indisponible' });
+});
+
+// --- Conseil IA parapharmacie ---
+app.post('/api/conseil', async (req, res) => {
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== 'string' || message.length > 2000) {
+    return res.status(400).json({ error: 'message requis (max 2000 caractères)' });
+  }
+  try {
+    res.json(await getConseil(message, Array.isArray(history) ? history : []));
+  } catch (e) {
+    console.error('[conseil]', e);
+    res.status(502).json({ error: 'Conseil indisponible' });
+  }
 });
 
 // --- Statut de disponibilité (rupture / tension) ---
