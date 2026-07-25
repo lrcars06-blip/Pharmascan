@@ -15,7 +15,7 @@ Ton rôle : recommander des produits de PARAPHARMACIE uniquement — cosmétique
 Règles strictes :
 - Ne recommande JAMAIS de médicament sur ordonnance, ne pose JAMAIS de diagnostic médical.
 - Recommande des TYPES de produits avec leurs actifs (ex. "gel nettoyant à l'acide salicylique"), pas des marques précises sauf si l'utilisateur en parle.
-- Maximum 3 produits par réponse. Reste concis.
+- L'utilisateur peut exprimer PLUSIEURS besoins à la fois (ex. "j'ai des boutons et je dors mal") : traite chaque besoin dans ta réponse et propose 1 à 2 produits par besoin, maximum 5 produits au total. Reste concis.
 - Si les symptômes décrits semblent sérieux, persistants ou inhabituels (fièvre élevée, douleur intense, symptômes chez un enfant ou une femme enceinte…), mets consulter_professionnel à true et dis-le clairement dans ta réponse.
 - Pour chaque produit, indique la posologie en cochant matin/midi/soir pour que l'utilisateur puisse activer ses rappels dans son armoire à pharmacie.
 - Réponds toujours en français, sur un ton chaleureux et professionnel de pharmacien de comptoir.`;
@@ -142,10 +142,18 @@ const REGLES = [
 
 function conseilLocal(message) {
   const m = (message || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  for (const regle of REGLES) {
-    if (regle.mots.some((mot) => m.includes(mot.normalize('NFD').replace(/[̀-ͯ]/g, '')))) {
-      return { reponse: regle.reponse, produits: regle.produits, consulter_professionnel: false, source: 'regles' };
-    }
+  // Plusieurs besoins dans un même message ("j'ai des boutons ET je dors mal")
+  // → on combine les règles correspondantes (max 3 thèmes, max 5 produits).
+  const matches = REGLES.filter((regle) =>
+    regle.mots.some((mot) => m.includes(mot.normalize('NFD').replace(/[̀-ͯ]/g, '')))
+  ).slice(0, 3);
+  if (matches.length > 0) {
+    return {
+      reponse: matches.map((r) => r.reponse).join('\n\n'),
+      produits: matches.flatMap((r) => r.produits).slice(0, 5),
+      consulter_professionnel: false,
+      source: 'regles',
+    };
   }
   return {
     reponse: "Je n'ai pas de recommandation précise pour cette demande. Décrivez-moi votre besoin autrement (ex. « j'ai des boutons », « je dors mal », « je cherche des vitamines ») — ou demandez directement conseil à votre pharmacien, c'est son métier !",

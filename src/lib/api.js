@@ -158,26 +158,35 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Recherche progressive : 5 km, puis 15 km, puis 30 km si aucune pharmacie.
-// Couvre ainsi toutes les communes de France, y compris les villages.
-export async function fetchPharmacies(lat, lon) {
+const enrich = (list, lat, lon, cap) => list
+  .map((p) => ({ ...p, dist: distanceKm(lat, lon, p.lat, p.lon) }))
+  .sort((a, b) => a.dist - b.dist)
+  .slice(0, cap);
+
+// 1) Mode commune (code INSEE) : TOUTES les pharmacies de la ville.
+// 2) Fallback rayon progressif 5 → 15 → 30 km (villages sans pharmacie,
+//    ou si la requête par commune échoue).
+export async function fetchPharmacies(lat, lon, insee) {
+  if (insee) {
+    try {
+      const list = await j(`/api/pharmacies?insee=${encodeURIComponent(insee)}`);
+      if (Array.isArray(list) && list.length > 0) {
+        return { list: enrich(list, lat, lon, 80), mode: 'commune' };
+      }
+    } catch (e) { /* bascule en mode rayon */ }
+  }
   const RAYONS = [5000, 15000, 30000];
   for (const radius of RAYONS) {
     try {
       const list = await j(`/api/pharmacies?lat=${lat}&lon=${lon}&radius=${radius}`);
       if (Array.isArray(list) && list.length > 0) {
-        const enriched = list
-          .map((p) => ({ ...p, dist: distanceKm(lat, lon, p.lat, p.lon) }))
-          .sort((a, b) => a.dist - b.dist)
-          .slice(0, 15);
-        return { list: enriched, radius };
+        return { list: enrich(list, lat, lon, 20), mode: 'rayon', radius };
       }
     } catch (e) {
-      // dernier rayon : on propage l'erreur, sinon on élargit
       if (radius === RAYONS[RAYONS.length - 1]) throw e;
     }
   }
-  return { list: [], radius: RAYONS[RAYONS.length - 1] };
+  return { list: [], mode: 'rayon', radius: RAYONS[RAYONS.length - 1] };
 }
 
 // --- Conseil IA parapharmacie ---

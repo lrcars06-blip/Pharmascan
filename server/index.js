@@ -89,19 +89,34 @@ app.get('/api/communes', async (req, res) => {
     const villes = (data.features || []).map((f) => {
       const c = (f.geometry && f.geometry.coordinates) || [];
       const p = f.properties || {};
-      return { nom: p.city || p.name || p.label, cp: p.postcode || '', lat: c[1], lon: c[0] };
+      return { nom: p.city || p.name || p.label, cp: p.postcode || '', insee: p.citycode || '', lat: c[1], lon: c[0] };
     }).filter((v) => v.nom);
     res.json(villes);
   } catch (e) { res.json([]); }
 });
 
 // --- Pharmacies (OpenStreetMap / Overpass) ---
-// Rayon paramétrable : les villages sans pharmacie élargissent la recherche.
+// Mode commune (insee) : TOUTES les pharmacies de la commune.
+// Mode rayon (lat/lon/radius) : fallback pour les villages sans pharmacie.
+const mapPharma = (data) => (data.elements || []).map((el) => {
+  const t = el.tags || {};
+  const plat = el.lat != null ? el.lat : el.center && el.center.lat;
+  const plon = el.lon != null ? el.lon : el.center && el.center.lon;
+  const addr = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ');
+  return { name: t.name || 'Pharmacie', addr, phone: t.phone || t['contact:phone'] || '', lat: plat, lon: plon };
+}).filter((p) => p.lat != null && p.lon != null);
+
 app.get('/api/pharmacies', async (req, res) => {
-  const { lat, lon } = req.query;
-  if (!lat || !lon) return res.status(400).json({ error: 'lat/lon requis' });
-  const radius = Math.min(Math.max(parseInt(req.query.radius, 10) || 5000, 1000), 30000);
-  const q = `[out:json][timeout:25];(node["amenity"="pharmacy"](around:${radius},${lat},${lon});way["amenity"="pharmacy"](around:${radius},${lat},${lon}););out center;`;
+  const { lat, lon, insee } = req.query;
+  let q;
+  if (insee && /^\d[0-9AB]\d{3}$/i.test(insee)) {
+    q = `[out:json][timeout:15];area["ref:INSEE"="${insee.toUpperCase()}"]->.a;(node["amenity"="pharmacy"](area.a);way["amenity"="pharmacy"](area.a););out center;`;
+  } else if (lat && lon) {
+    const radius = Math.min(Math.max(parseInt(req.query.radius, 10) || 5000, 1000), 30000);
+    q = `[out:json][timeout:15];(node["amenity"="pharmacy"](around:${radius},${lat},${lon});way["amenity"="pharmacy"](around:${radius},${lat},${lon}););out center;`;
+  } else {
+    return res.status(400).json({ error: 'insee ou lat/lon requis' });
+  }
   for (const ep of OVERPASS) {
     try {
       const data = await getJson(ep, {
@@ -109,14 +124,7 @@ app.get('/api/pharmacies', async (req, res) => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(q),
       });
-      const list = (data.elements || []).map((el) => {
-        const t = el.tags || {};
-        const plat = el.lat != null ? el.lat : el.center && el.center.lat;
-        const plon = el.lon != null ? el.lon : el.center && el.center.lon;
-        const addr = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ');
-        return { name: t.name || 'Pharmacie', addr, phone: t.phone || t['contact:phone'] || '', lat: plat, lon: plon };
-      }).filter((p) => p.lat != null && p.lon != null);
-      return res.json(list);
+      return res.json(mapPharma(data));
     } catch (e) { /* essaie le miroir suivant */ }
   }
   res.status(502).json({ error: 'Overpass indisponible' });

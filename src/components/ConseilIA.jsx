@@ -2,7 +2,17 @@ import { useState, useRef, useEffect } from 'react';
 import { conseilIA } from '../lib/api.js';
 import { addMed } from '../lib/storage.js';
 
-const SUGGESTIONS = ["J'ai des boutons 😣", 'Je dors mal 😴', 'Quelles vitamines pour la fatigue ?', 'Peau très sèche'];
+// Besoins sélectionnables (plusieurs à la fois)
+const BESOINS = [
+  { icon: '😣', label: 'Boutons / acné', texte: "j'ai des boutons" },
+  { icon: '😴', label: 'Mieux dormir', texte: 'je dors mal' },
+  { icon: '🥱', label: 'Fatigue / vitamines', texte: 'je suis fatigué, quelles vitamines' },
+  { icon: '🌵', label: 'Peau sèche', texte: "ma peau est très sèche" },
+  { icon: '🤢', label: 'Digestion', texte: "j'ai des ballonnements" },
+  { icon: '💇', label: 'Cheveux', texte: 'mes cheveux sont fragiles' },
+  { icon: '😰', label: 'Stress', texte: 'je suis stressé' },
+  { icon: '🛡️', label: 'Immunité', texte: 'je veux renforcer mon immunité' },
+];
 
 // Mappe le type de produit IA vers une catégorie de l'armoire
 const TYPE_TO_CAT = { soin: 'soin', complement: 'complement', hygiene: 'soin', solaire: 'soin', 'premiers-soins': 'autre' };
@@ -12,7 +22,23 @@ export default function ConseilIA() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [addedIds, setAddedIds] = useState(new Set());
+  const [selection, setSelection] = useState(new Set()); // besoins cochés
   const endRef = useRef(null);
+
+  function toggleBesoin(label) {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
+  }
+
+  function envoyerSelection() {
+    const choisis = BESOINS.filter((b) => selection.has(b.label));
+    if (!choisis.length) return;
+    setSelection(new Set());
+    send(choisis.map((b) => b.texte).join(', et ') + '.');
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -74,13 +100,37 @@ export default function ConseilIA() {
       {/* Fil de conversation */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
         {messages.length === 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {SUGGESTIONS.map((s) => (
-              <button key={s} onClick={() => send(s)}
-                style={{ padding: '8px 12px', borderRadius: 20, border: '1px solid var(--line)', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
-                {s}
+          <div>
+            <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--muted)' }}>
+              Sélectionnez un ou plusieurs besoins :
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {BESOINS.map((b) => {
+                const on = selection.has(b.label);
+                return (
+                  <button key={b.label} onClick={() => toggleBesoin(b.label)}
+                    style={{
+                      padding: '8px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 13,
+                      border: on ? '1.5px solid var(--teal)' : '1px solid var(--line)',
+                      background: on ? 'var(--teal-soft)' : '#fff',
+                      color: on ? 'var(--teal-ink)' : 'var(--ink)',
+                      fontWeight: on ? 600 : 400,
+                    }}>
+                    {on ? '✓ ' : ''}{b.icon} {b.label}
+                  </button>
+                );
+              })}
+            </div>
+            {selection.size > 0 && (
+              <button onClick={envoyerSelection}
+                style={{
+                  marginTop: 12, width: '100%', padding: '11px 0', borderRadius: 10,
+                  border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                  background: 'var(--teal)', color: '#fff',
+                }}>
+                Obtenir mes conseils ({selection.size} besoin{selection.size > 1 ? 's' : ''})
               </button>
-            ))}
+            )}
           </div>
         )}
 

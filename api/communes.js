@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const villes = (data.features || []).map((f) => {
       const c = (f.geometry && f.geometry.coordinates) || [];
       const p = f.properties || {};
-      return { nom: p.city || p.name || p.label, cp: p.postcode || '', lat: c[1], lon: c[0] };
+      return { nom: p.city || p.name || p.label, cp: p.postcode || '', insee: p.citycode || '', lat: c[1], lon: c[0] };
     }).filter((v) => v.nom);
     res.status(200).json(villes);
   } catch (e) {

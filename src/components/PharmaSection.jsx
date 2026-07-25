@@ -19,7 +19,7 @@ export default function PharmaSection() {
     debounce(async (v) => {
       if (v.trim().length >= 2) {
         const items = await cityAutocomplete(v.trim());
-        setSugg(items.map((c) => ({ label: c.nom, sub: c.cp, value: c.nom, lat: c.lat, lon: c.lon })));
+        setSugg(items.map((c) => ({ label: c.nom, sub: c.cp, value: c.nom, lat: c.lat, lon: c.lon, insee: c.insee })));
       } else {
         setSugg([]);
       }
@@ -32,34 +32,36 @@ export default function PharmaSection() {
     debouncedCitySearch(v);
   }
 
-  async function doSearch(coords, name) {
+  async function doSearch(coords, name, insee) {
     const c = (name ?? city).trim();
     if (!c) {
       setStatus('idle');
       return;
     }
-    setSugg([]); 
-    setStatus('loading'); 
+    setSugg([]);
+    setStatus('loading');
     setLabel(c.charAt(0).toUpperCase() + c.slice(1));
-    
+
     let geo = coords;
-    if (!geo) {
+    let codeInsee = insee;
+    if (!geo || !codeInsee) {
       try {
         const items = await cityAutocomplete(c);
         if (items && items[0] && items[0].lat != null) {
-          geo = { lat: items[0].lat, lon: items[0].lon };
+          geo = geo || { lat: items[0].lat, lon: items[0].lon };
+          codeInsee = codeInsee || items[0].insee;
         }
       } catch (e) {
         console.error('Erreur géolocalisation:', e);
       }
     }
-    
+
     if (!geo) return setStatus('error');
-    
+
     try {
-      const { list, radius: usedRadius } = await fetchPharmacies(geo.lat, geo.lon);
+      const { list, mode, radius: usedRadius } = await fetchPharmacies(geo.lat, geo.lon, codeInsee);
       setPharmas(list);
-      setRadius(usedRadius);
+      setRadius(mode === 'commune' ? 0 : usedRadius);
       setStatus('done');
     } catch (e) {
       console.error('Erreur pharmacies:', e);
@@ -79,7 +81,7 @@ export default function PharmaSection() {
           onBlur={() => setTimeout(() => setSugg([]), 150)} />
         <button onClick={() => doSearch()}>Chercher</button>
       </div>
-      <Suggest items={sugg} onPick={(it) => { setCity(it.value); doSearch(it.lat != null ? { lat: it.lat, lon: it.lon } : null, it.value); }} />
+      <Suggest items={sugg} onPick={(it) => { setCity(it.value); doSearch(it.lat != null ? { lat: it.lat, lon: it.lon } : null, it.value, it.insee); }} />
 
       {status === 'loading' && <div className="loader">Recherche des pharmacies à {label}…</div>}
 
@@ -102,7 +104,9 @@ export default function PharmaSection() {
       {status === 'done' && (
         <div className="card">
           <p className="lbl" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
-            Pharmacies à {label}{radius > 5000 ? ` (rayon élargi à ${Math.round(radius / 1000)} km)` : ''}
+            {radius === 0
+              ? `${pharmas.length} pharmacie${pharmas.length > 1 ? 's' : ''} à ${label}`
+              : `Pharmacies autour de ${label}${radius > 5000 ? ` (rayon élargi à ${Math.round(radius / 1000)} km)` : ''}`}
           </p>
           {pharmas.length === 0 && <p className="note">Aucune pharmacie trouvée dans un rayon de 30 km autour de cette commune. Le 3237 reste votre meilleur recours.</p>}
           {pharmas.map((p, i) => (
