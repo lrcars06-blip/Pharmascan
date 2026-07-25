@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
+    "build:pharmacies": "node scripts/build-pharmacies.mjs",
     "start": "concurrently -n SERVER,WEB -c green,cyan \"npm:server\" \"npm:dev\""
   },
   "dependencies": {

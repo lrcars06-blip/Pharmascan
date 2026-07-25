@@ -166,8 +166,28 @@ const enrich = (list, lat, lon, cap) => list
 // 1) Mode commune (code INSEE) : TOUTES les pharmacies de la ville.
 // 2) Fallback rayon progressif 5 → 15 → 30 km (villages sans pharmacie,
 //    ou si la requête par commune échoue).
+// Base locale embarquée (public/data/pharmacies/<dept>.json, générée par
+// `npm run build:pharmacies`) : réponse instantanée, zéro service externe.
+async function pharmaciesLocales(insee) {
+  if (!/^\d[0-9AB]\d{3}$/i.test(insee || '')) return null;
+  const code = insee.toUpperCase();
+  const dept = code.startsWith('97') || code.startsWith('98') ? code.slice(0, 3) : code.slice(0, 2);
+  try {
+    const data = await j(`/data/pharmacies/${dept}.json`);
+    const hits = (Array.isArray(data) ? data : []).filter((p) => p.insee === code);
+    return hits.length ? hits : null;
+  } catch { return null; }
+}
+
 export async function fetchPharmacies(lat, lon, insee, ville) {
   const v = ville ? `&ville=${encodeURIComponent(ville)}` : '';
+  // 0) Base locale embarquée — instantanée
+  if (insee) {
+    const locales = await pharmaciesLocales(insee);
+    if (locales) {
+      return { list: enrich(locales, lat, lon, 100), mode: 'commune' };
+    }
+  }
   if (insee) {
     try {
       const list = await j(`/api/pharmacies?insee=${encodeURIComponent(insee)}${v}`);

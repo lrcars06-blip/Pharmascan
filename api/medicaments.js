@@ -13,9 +13,15 @@ export default async function handler(req, res) {
     else if (search) url = `${BDPM}/medicaments?search=${encodeURIComponent(noAccents(search))}`;
     else return res.status(400).json({ error: 'search ou cip requis' });
 
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('upstream ' + r.status);
-    const data = await r.json();
+    // 2 tentatives : la BDPM répond presque toujours au 2e essai
+    let data = null;
+    for (let i = 0; i < 2 && !data; i++) {
+      try {
+        const r = await fetch(url);
+        if (r.ok) data = await r.json();
+      } catch (e) { /* retente */ }
+    }
+    if (!data) throw new Error('bdpm down');
     res.status(200).json(data);
   } catch (e) {
     res.status(502).json({ error: 'BDPM indisponible' });

@@ -64,13 +64,21 @@ app.get('/api/generiques', async (req, res) => {
   } catch (e) { res.json([]); }
 });
 
-// --- Parapharmacie (Open Beauty Facts) ---
+// --- Parapharmacie : cascade Open Beauty Facts → Open Food Facts → Open Products Facts ---
+const PRODUCT_BASES = [
+  'https://world.openbeautyfacts.org/api/v2',
+  'https://world.openfoodfacts.org/api/v2',
+  'https://world.openproductsfacts.org/api/v2',
+];
 app.get('/api/parapharmacie/:code', async (req, res) => {
-  try {
-    const fields = 'product_name,product_name_fr,brands,ingredients_text_fr,ingredients_text,allergens_tags';
-    const data = await getJson(`${OBF}/product/${encodeURIComponent(req.params.code)}.json?fields=${fields}`);
-    res.json(data);
-  } catch (e) { res.status(502).json({ status: 0 }); }
+  const fields = 'product_name,product_name_fr,brands,ingredients_text_fr,ingredients_text,allergens_tags';
+  for (const base of PRODUCT_BASES) {
+    try {
+      const data = await getJson(`${base}/product/${encodeURIComponent(req.params.code)}.json?fields=${fields}`);
+      if (data && data.status === 1 && data.product && data.product.product_name) return res.json(data);
+    } catch (e) { /* base suivante */ }
+  }
+  res.json({ status: 0 });
 });
 
 // --- Prix indicatif (Open Prices) ---
