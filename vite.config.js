@@ -10,6 +10,15 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        // La nouvelle version du site prend le contrôle immédiatement
+        // (sinon les téléphones gardent l'ancienne version en cache)
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // Les données (base pharmacies) ne sont pas pré-cachées, chargées à la demande
+        globIgnores: ['**/data/**'],
+      },
       manifest: {
         name: 'Pharmascan',
         short_name: 'Pharmascan',
