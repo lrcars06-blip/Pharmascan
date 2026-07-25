@@ -3,87 +3,103 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 
 /**
  * Ouvre la caméra et détecte un code-barres.
+ * - Chrome/Edge/Android : BarcodeDetector natif (rapide)
+ * - iPhone/Safari/Firefox : @zxing/browser en secours
+ * La caméra arrière est demandée par contraintes (compatible iOS).
  * Props :
  *   onDetected(code: string) — appelé dès qu'un code est lu
  *   onClose()               — demande de fermeture
  */
 export default function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
-  const readerRef = useRef(null);
-  const controlsRef = useRef(null);
   const [error, setError] = useState(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    const stopFns = [];
+    const CONSTRAINTS = { video: { facingMode: { ideal: 'environment' } }, audio: false };
 
-    async function startScan() {
-      // Préférence : caméra arrière sur mobile
-      const constraints = { video: { facingMode: { ideal: 'environment' } } };
-
-      try {
-        // Tente BarcodeDetector natif en premier (plus rapide)
-        if ('BarcodeDetector' in window) {
-          const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setReady(true);
-
-          const scan = async () => {
-            if (cancelled || !videoRef.current) return;
-            try {
-              const codes = await detector.detect(videoRef.current);
-              if (codes.length > 0) {
-                stream.getTracks().forEach(t => t.stop());
-                onDetected(codes[0].rawValue);
-                return;
-              }
-            } catch (_) {}
-            requestAnimationFrame(scan);
-          };
-          requestAnimationFrame(scan);
-
-          controlsRef.current = { stop: () => stream.getTracks().forEach(t => t.stop()) };
-          return;
-        }
-
-        // Fallback : @zxing/browser (fonctionne sur Firefox / Safari)
-        const reader = new BrowserMultiFormatReader();
-        readerRef.current = reader;
-
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices();
-        const backCam = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
-        const deviceId = backCam ? backCam.deviceId : undefined;
-
-        const controls = await reader.decodeFromVideoDevice(
-          deviceId,
-          videoRef.current,
-          (result, err, ctrl) => {
-            if (cancelled) { ctrl.stop(); return; }
-            if (result) {
-              ctrl.stop();
-              onDetected(result.getText());
-            }
-          }
-        );
-        controlsRef.current = controls;
-        setReady(true);
-      } catch (e) {
-        if (!cancelled) {
-          if (e.name === 'NotAllowedError') setError('Accès caméra refusé. Autorisez la caméra dans les paramètres de votre navigateur.');
-          else if (e.name === 'NotFoundError') setError('Aucune caméra détectée sur cet appareil.');
-          else setError('Impossible d\'ouvrir la caméra : ' + e.message);
-        }
-      }
+    function fail(e) {
+      if (cancelled) return;
+      if (e && e.name === 'NotAllowedError') setError('Accès caméra refusé. Autorisez la caméra pour ce site dans les réglages de votre navigateur, puis réessayez.');
+      else if (e && e.name === 'NotFoundError') setError('Aucune caméra détectée sur cet appareil.');
+      else if (e && e.name === 'NotReadableError') setError('La caméra est utilisée par une autre application. Fermez-la puis réessayez.');
+      else setError("Impossible d'ouvrir la caméra. Vérifiez que le site est bien en https et que la caméra est autorisée.");
     }
 
-    startScan();
+    // Détecteur natif (Chrome, Edge, Android). Retourne false si indisponible.
+    async function startNative() {
+      if (!('BarcodeDetector' in window)) return false;
+      let detector;
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
+          .filter((f) => supported.includes(f));
+        if (!wanted.length) return false;
+        detector = new window.BarcodeDetector({ formats: wanted });
+      } catch { return false; }
+
+      const stream = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return true; }
+      stopFns.push(() => stream.getTracks().forEach((t) => t.stop()));
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      setReady(true);
+
+      const scan = async () => {
+        if (cancelled || !videoRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          if (codes.length > 0) {
+            stopFns.forEach((f) => f());
+            onDetected(codes[0].rawValue);
+            return;
+          }
+        } catch { /* frame suivante */ }
+        requestAnimationFrame(scan);
+      };
+      requestAnimationFrame(scan);
+      return true;
+    }
+
+    // Secours universel : @zxing/browser avec contraintes (marche sur iPhone).
+    async function startZxing() {
+      const reader = new BrowserMultiFormatReader();
+      const controls = await reader.decodeFromConstraints(
+        CONSTRAINTS,
+        videoRef.current,
+        (result, err, ctrl) => {
+          if (cancelled) { ctrl.stop(); return; }
+          if (result) {
+            ctrl.stop();
+            onDetected(result.getText());
+          }
+        }
+      );
+      stopFns.push(() => controls.stop());
+      if (!cancelled) setReady(true);
+    }
+
+    (async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError("Votre navigateur ne permet pas d'accéder à la caméra. Ouvrez le site dans Safari (iPhone) ou Chrome (Android).");
+        return;
+      }
+      try {
+        const ok = await startNative();
+        if (!ok && !cancelled) await startZxing();
+      } catch (e) {
+        // le natif a échoué pour une raison caméra : on tente quand même zxing,
+        // sauf si c'est un refus de permission (inutile de redemander)
+        if (e && (e.name === 'NotAllowedError' || e.name === 'NotFoundError')) return fail(e);
+        try { await startZxing(); } catch (e2) { fail(e2); }
+      }
+    })();
 
     return () => {
       cancelled = true;
-      controlsRef.current?.stop?.();
+      stopFns.forEach((f) => { try { f(); } catch { /* déjà arrêté */ } });
     };
   }, []);
 
@@ -103,7 +119,7 @@ export default function BarcodeScanner({ onDetected, onClose }) {
         ) : (
           <>
             <div style={viewfinder}>
-              <video ref={videoRef} style={video} muted playsInline />
+              <video ref={videoRef} style={video} muted autoPlay playsInline />
               {!ready && <div style={loadingOverlay}>Ouverture de la caméra…</div>}
               <div style={crosshair} />
             </div>

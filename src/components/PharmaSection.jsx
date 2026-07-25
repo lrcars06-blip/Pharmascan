@@ -59,7 +59,7 @@ export default function PharmaSection() {
     if (!geo) return setStatus('error');
 
     try {
-      const { list, mode, radius: usedRadius } = await fetchPharmacies(geo.lat, geo.lon, codeInsee);
+      const { list, mode, radius: usedRadius } = await fetchPharmacies(geo.lat, geo.lon, codeInsee, c);
       setPharmas(list);
       setRadius(mode === 'commune' ? 0 : usedRadius);
       setStatus('done');
@@ -97,8 +97,16 @@ export default function PharmaSection() {
       )}
 
       {status === 'error' && (
-        <div className="card"><p className="lbl" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>Pharmacies à {label}</p>
-          <p className="note">Service de localisation indisponible (back-end éteint ou ville introuvable). Vérifiez et réessayez.</p></div>
+        <div className="card">
+          <p className="lbl" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>Pharmacies à {label}</p>
+          <p className="note">La carte des pharmacies met un peu de temps à répondre. Réessayez dans quelques secondes — ça marche presque toujours au 2ᵉ essai.</p>
+          <button
+            onClick={() => doSearch(null, label)}
+            style={{ marginTop: 10, width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600 }}
+          >
+            🔄 Réessayer
+          </button>
+        </div>
       )}
 
       {status === 'done' && (

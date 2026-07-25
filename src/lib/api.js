@@ -166,10 +166,11 @@ const enrich = (list, lat, lon, cap) => list
 // 1) Mode commune (code INSEE) : TOUTES les pharmacies de la ville.
 // 2) Fallback rayon progressif 5 → 15 → 30 km (villages sans pharmacie,
 //    ou si la requête par commune échoue).
-export async function fetchPharmacies(lat, lon, insee) {
+export async function fetchPharmacies(lat, lon, insee, ville) {
+  const v = ville ? `&ville=${encodeURIComponent(ville)}` : '';
   if (insee) {
     try {
-      const list = await j(`/api/pharmacies?insee=${encodeURIComponent(insee)}`);
+      const list = await j(`/api/pharmacies?insee=${encodeURIComponent(insee)}${v}`);
       if (Array.isArray(list) && list.length > 0) {
         return { list: enrich(list, lat, lon, 80), mode: 'commune' };
       }
@@ -178,7 +179,7 @@ export async function fetchPharmacies(lat, lon, insee) {
   const RAYONS = [5000, 15000, 30000];
   for (const radius of RAYONS) {
     try {
-      const list = await j(`/api/pharmacies?lat=${lat}&lon=${lon}&radius=${radius}`);
+      const list = await j(`/api/pharmacies?lat=${lat}&lon=${lon}&radius=${radius}${v}`);
       if (Array.isArray(list) && list.length > 0) {
         return { list: enrich(list, lat, lon, 20), mode: 'rayon', radius };
       }
