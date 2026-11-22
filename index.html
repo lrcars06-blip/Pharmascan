@@ -3,11 +3,73 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0F6E56" />
-  <title>Pharmascan</title>
+  <meta name="description" content="Pharmascan : identifiez un médicament à partir de sa boîte, lisez l'information officielle, trouvez une pharmacie et le service de garde." />
+  <meta name="theme-color" content="#F4F6F4" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0A1517" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Pharmascan" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://data.geopf.fr" crossorigin />
+  <title>Pharmascan — identifier un médicament, trouver une pharmacie</title>
+  <style>
+    html{background:#F4F6F4}@media (prefers-color-scheme:dark){html{background:#0A1517}}
+    /* Animation d'arrivée : dans la page elle-même, donc visible avant même le chargement du JavaScript.
+       Jouée une fois par session, ~2,6 s, un toucher la passe. L'application se charge pendant ce temps. */
+    #intro{position:fixed;inset:0;z-index:1000;background:#0F6E56;display:grid;place-items:center;cursor:pointer;transition:opacity .3s}
+    #intro.out{opacity:0;pointer-events:none}
+    #intro svg{width:min(78vw,340px);height:auto;grid-area:1/1;animation:i-leave .3s 1.85s both}
+    #intro .box{animation:i-pop .35s cubic-bezier(.2,1.4,.4,1) both;transform-origin:160px 160px}
+    #intro .phone{animation:i-rise .45s .3s cubic-bezier(.2,.9,.3,1) both}
+    #intro .laser{animation:i-sweep .5s .8s ease-in-out 2 alternate both}
+    #intro .ok{animation:i-pop .3s 1.5s cubic-bezier(.2,1.6,.4,1) both;transform-origin:160px 160px}
+    #intro .word{grid-area:1/1;position:relative;color:#fff;font:700 clamp(28px,9vw,44px)/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;letter-spacing:.14em;padding:.25em 0 .25em .14em}
+    #intro .word span{display:block;clip-path:inset(0 100% 0 0);animation:i-write .5s 2s cubic-bezier(.3,.7,.3,1) both}
+    #intro .word i{position:absolute;top:0;bottom:0;left:0;width:3px;border-radius:2px;background:#8CF2CB;box-shadow:0 0 14px #8CF2CB;opacity:0;animation:i-pen .5s 2s cubic-bezier(.3,.7,.3,1) forwards}
+    @keyframes i-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+    @keyframes i-rise{from{opacity:0;transform:translateY(120px)}to{opacity:1;transform:none}}
+    @keyframes i-sweep{from{transform:translateY(0)}to{transform:translateY(74px)}}
+    @keyframes i-leave{to{opacity:0;transform:scale(.9)}}
+    @keyframes i-write{to{clip-path:inset(0 0 0 0)}}
+    @keyframes i-pen{0%{left:0;opacity:1}90%{left:100%;opacity:1}100%{left:100%;opacity:0}}
+  </style>
 </head>
 <body>
+  <div id="intro" aria-hidden="true">
+    <svg viewBox="0 0 320 320" fill="none">
+      <!-- la boîte de médicament -->
+      <g class="box">
+        <rect x="104" y="118" width="112" height="84" rx="10" fill="#fff"/>
+        <path d="M128 136v24M116 148h24" stroke="#0F6E56" stroke-width="8" stroke-linecap="round"/>
+        <rect x="150" y="136" width="52" height="7" rx="3.5" fill="#BFE3D5"/><rect x="150" y="150" width="36" height="7" rx="3.5" fill="#DCEFE8"/>
+        <g fill="#0C2A30"><rect x="170" y="166" width="30" height="5"/><rect x="170" y="166" width="5" height="30"/><rect x="180" y="176" width="5" height="5"/><rect x="190" y="176" width="5" height="10"/><rect x="180" y="186" width="5" height="10"/><rect x="195" y="191" width="5" height="5"/><rect x="185" y="181" width="5" height="5"/></g>
+        <rect x="116" y="176" width="40" height="6" rx="3" fill="#DCEFE8"/><rect x="116" y="187" width="28" height="6" rx="3" fill="#DCEFE8"/>
+      </g>
+      <!-- le téléphone qui vient la cadrer -->
+      <g class="phone">
+        <rect x="82" y="42" width="156" height="236" rx="26" fill="#fff" fill-opacity=".1" stroke="#fff" stroke-width="6"/>
+        <rect x="142" y="54" width="36" height="6" rx="3" fill="#fff"/>
+        <path d="M98 122v-10a6 6 0 0 1 6-6h10M206 106h10a6 6 0 0 1 6 6v10M222 198v10a6 6 0 0 1-6 6h-10M114 214h-10a6 6 0 0 1-6-6v-10" stroke="#8CF2CB" stroke-width="4" stroke-linecap="round"/>
+        <rect class="laser" x="94" y="121" width="132" height="4" rx="2" fill="#8CF2CB"/>
+      </g>
+      <g class="ok"><circle cx="160" cy="160" r="30" fill="#8CF2CB"/><path d="m147 160 9 9 18-19" stroke="#0C2A30" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    </svg>
+    <div class="word"><span>PHARMASCAN</span><i></i></div>
+  </div>
+  <script>
+    (function () {
+      var el = document.getElementById('intro'), seen = false;
+      try { seen = sessionStorage.getItem('pharmascan_intro') === '1'; sessionStorage.setItem('pharmascan_intro', '1'); } catch (e) {}
+      var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (seen || calm) return el.remove();
+      var close = function () { el.classList.add('out'); setTimeout(function () { el.remove(); }, 320); };
+      el.addEventListener('click', close);
+      setTimeout(close, 2750);
+    })();
+  </script>
   <div id="root"></div>
+  <noscript>Pharmascan a besoin de JavaScript pour fonctionner.</noscript>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

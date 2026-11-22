@@ -12,60 +12,79 @@ Pré-requis : **Node.js 18+**.
 
 ```bash
 npm install
-npm start
+npm run dev
 ```
 
-`npm start` lance en parallèle :
-- le **back-end** (Express) sur `http://localhost:8787`
-- le **front** (Vite) sur `http://localhost:5173`
+Ouvrez `http://localhost:5173`. Une seule commande : en développement, Vite exécute lui-même les fonctions du dossier `/api` (les mêmes fichiers que sur Vercel).
 
-Ouvrez `http://localhost:5173`. (Pour lancer séparément : `npm run server` et `npm run dev`.)
+Pour le conseil par IA en local, créez un fichier `.env` avec `ANTHROPIC_API_KEY=...` (sans clé, un moteur de règles répond à la place).
 
 ---
 
 ## Architecture
 
-```
-Front (React + Vite + PWA)
-        │  appels à /api/...
-        ▼
-Back-end (Express, server/index.js)   ← règle le CORS, centralise les appels
-        │
-        ├─ BDPM (médicaments) ............. medicaments-api.giygas.dev
-        ├─ Open Beauty Facts (parapharma)  world.openbeautyfacts.org
-        ├─ Open Prices (prix indicatif) ... prices.openfoodfacts.org
-        ├─ Base Adresse Nationale (villes)  api-adresse.data.gouv.fr
-        └─ OpenStreetMap (pharmacies) ..... overpass-api.de
-```
+Principe : **tout ce qui peut être embarqué l'est**. Le site ne dépend d'un service extérieur que lorsqu'il n'y a pas d'alternative.
 
-Le front n'appelle jamais directement ces services : il passe par le back-end. C'est ce qui règle les blocages CORS et permettra d'ajouter des **clés d'API**, un **cache**, et un **compte utilisateur**.
+```
+Navigateur (React + Vite + PWA)
+   │
+   ├─ /data/bdpm/…        base médicaments LOCALE (fichiers officiels BDPM)
+   │                      → recherche instantanée, fiches, codes CIP, génériques,
+   │                        ruptures et tensions ANSM. Fonctionne hors ligne.
+   ├─ /data/pharmacies/…  ~19 700 officines par département (OpenStreetMap)
+   │                      → par commune, « autour de moi » ou sur la carte de France
+   │                        (Leaflet + fond Plan IGN), sans service payant ni clé.
+   ├─ data.geopf.fr       autocomplétion des communes (Géoplateforme IGN, appel direct)
+   └─ /api/…              fonctions Vercel, mises en cache par le CDN
+        ├─ parapharmacie/[code]  Open Beauty / Food / Products Facts + Open Prices, en parallèle
+        ├─ conseil               assistant parapharmacie (Claude, ou règles sans clé)
+        ├─ pharmacies            secours OpenStreetMap (Monaco, base locale inaccessible)
+        └─ communes              secours si l'appel direct à la Géoplateforme échoue
+```
 
 ### Fichiers clés
-- `server/index.js` — le back-end et ses routes `/api/*`
-- `src/lib/api.js` — la couche d'accès aux données côté front
-- `src/lib/storage.js` — l'armoire (stockage local)
+- `scripts/build-bdpm.mjs` — télécharge les fichiers officiels BDPM et génère `public/data/bdpm/`
+- `scripts/build-pharmacies.mjs` — génère `public/data/pharmacies/`
+- `src/lib/bdpm.js` — recherche et fiches médicaments (dans le navigateur)
+- `src/lib/codes.js` — lecture des codes scannés (DataMatrix GS1, CIP 13, CIP 7, EAN)
+- `src/lib/pharmacies.js` — pharmacies par commune ou par rayon, communes
+- `src/lib/calendar.js` — rappels de péremption et de prise exportés vers l'agenda du téléphone (.ics), liste partageable
+- `src/lib/storage.js` — armoire, fiche d'urgence, historique (stockage local de l'appareil)
+- `src/components/Carte.jsx` — carte interactive des pharmacies (chargée à la demande)
+- `index.html` — contient l'animation d'arrivée (une fois par session, un toucher la passe)
 - `src/components/*` — les 4 sections (Médicaments, Parapharmacie, Pharmacies, Armoire)
-- `src/index.css` — la direction artistique (couleurs, composants)
+- `src/index.css` — la direction artistique (variables de couleur, mode sombre, composants)
+- `api/*` — les fonctions serverless ; `vite.config.js` les exécute aussi en local
+
+### Mettre à jour les données
+
+| Commande | Effet | Quand |
+|---|---|---|
+| `npm run build:bdpm` | Retélécharge la BDPM officielle et régénère la base médicaments | Automatique à chaque déploiement Vercel ; à la main pour rafraîchir la copie du dépôt |
+| `npm run build:pharmacies` | Retélécharge les pharmacies (France + Monaco) depuis OpenStreetMap | Tous les quelques mois (2 à 5 minutes) |
+
+À chaque déploiement, Vercel rafraîchit la base médicaments. Si le site officiel ne répond pas, la copie enregistrée dans le dépôt est utilisée : le déploiement n'échoue jamais pour cette raison.
+
+Le script BDPM contrôle le format des fichiers officiels avant d'écrire quoi que ce soit : si le format change, il s'arrête au lieu de publier des données fausses.
 
 ---
 
-## Feuille de route du back-end
+## Feuille de route
 
-Ces fonctionnalités demandent le back-end (déjà amorcé dans `server/index.js`) :
-
-- [ ] **Notice officielle structurée** (posologie, contre-indications, effets indésirables) — la fiche est aujourd'hui volontairement sobre et renvoie à la notice.
-- [ ] **Statut rupture / tension en temps réel** — route `/api/disponibilite/:cis` à connecter à la source officielle ANSM (Trustmed), via une API d'éditeur (Synapse, Claude Bernard).
+- [ ] **Notice officielle structurée** (posologie, contre-indications, effets indésirables) — la fiche renvoie aujourd'hui à la notice officielle.
+- [ ] **Notifications push** — les rappels passent aujourd'hui par l'agenda du téléphone (fichier .ics) ; de vraies notifications demandent un serveur.
+- [ ] **Rappels de lots** — croiser les lots scannés avec les rappels ANSM (pas de flux exploitable trouvé à ce jour).
+- [ ] **Comptes utilisateurs** — pour synchroniser l'armoire entre appareils.
 - [ ] **OCR d'ordonnance** — modèle de vision côté serveur (donnée de santé sensible).
-- [ ] **Comptes utilisateurs** — pour synchroniser l'armoire et activer les vraies notifications de rappel.
-- [ ] **Héberger sa propre base BDPM** — la BDPM est réutilisable ; en production, servir les fichiers officiels depuis son back-end plutôt que via une API tierce non commerciale.
+- [ ] **Limite d'appels sur `/api/conseil`** — la route est publique et chaque appel coûte ; à protéger avant d'ouvrir largement.
 
 ---
 
 ## Sources & licences
 
-- **BDPM** (médicaments) — base publique, source ANSM.
+- **BDPM** (médicaments, prix, génériques, disponibilité) — fichiers publics téléchargés sur base-donnees-publique.medicaments.gouv.fr, source ANSM / HAS / UNCAM.
 - **Open Beauty Facts** & **Open Prices** — licence **ODbL** (réutilisation commerciale avec attribution et partage à l'identique).
-- **Base Adresse Nationale** & **OpenStreetMap** — données ouvertes (attribution requise pour OSM).
+- **Base Adresse Nationale** (via la Géoplateforme IGN) & **OpenStreetMap** — données ouvertes (attribution requise pour OSM).
 
 ## Conformité
 
