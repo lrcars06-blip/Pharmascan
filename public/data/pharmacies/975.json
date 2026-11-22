@@ -1,1 +1,1 @@
-[{"name":"Pharmacie SPM","addr":"","phone":"+508 41 28 02","lat":46.7795981,"lon":-56.1739779,"insee":"97502","ville":"Saint-Pierre"},{"name":"Pharmacie de ville","addr":"","phone":"+508 41 47 60","lat":46.7744126,"lon":-56.1740379,"insee":"97502","ville":"Saint-Pierre"}]
+[{"name":"Pharmacie SPM","addr":"","phone":"+508 41 28 02","lat":46.7795981,"lon":-56.1739779,"insee":"97502","ville":"Saint-Pierre","cp":"97500"},{"name":"Pharmacie de ville","addr":"","phone":"+508 41 47 60","lat":46.7744126,"lon":-56.1740379,"insee":"97502","ville":"Saint-Pierre","cp":"97500"}]

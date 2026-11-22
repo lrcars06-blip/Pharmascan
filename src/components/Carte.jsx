@@ -77,7 +77,7 @@ export default function Carte({ focus, visible }) {
           if (cell.codes.length === 1) mk.bindTooltip(`Département ${cell.codes[0]}`);
           marks.push(mk);
         }
-        setInfo(`${data.total.toLocaleString('fr-FR')} pharmacies. Touchez un nombre ou zoomez.`);
+        setInfo(`${data.total.toLocaleString('fr-FR')} pharmacies et parapharmacies. Touchez un nombre ou zoomez.`);
       } else {
         const codes = Object.entries(data.depts)
           .filter(([, [a, b, c, d]]) => c >= view.getSouth() && a <= view.getNorth() && d >= view.getWest() && b <= view.getEast())
