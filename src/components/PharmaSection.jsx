@@ -14,7 +14,7 @@ const tel = (phone) => (phone || '').split(/[;,/]/)[0].replace(/[^\d+]/g, '');
 export default function PharmaSection({ sub, active }) {
   const shown = useRef(sub);
   if (active) shown.current = sub;
-  const view = shown.current === 'carte' ? 'carte' : 'liste';
+  const view = shown.current === 'liste' ? 'liste' : 'carte'; // la carte est l'écran par défaut
   const [mapOpened, setMapOpened] = useState(view === 'carte');
   if (view === 'carte' && !mapOpened) setMapOpened(true);
   const [focus, setFocus] = useState(null); // dernier lieu cherché : la carte s'y recentre
@@ -96,16 +96,6 @@ export default function PharmaSection({ sub, active }) {
       <h1 className="title">Pharmacies et garde</h1>
       <p className="lead">Les pharmacies d'une commune, autour de vous ou sur la carte, et le service de garde.</p>
 
-      <Segmented label="Affichage" value={view} options={[['liste', 'Liste'], ['carte', 'Carte de France']]}
-        onChange={(v) => navigate(v === 'carte' ? 'pharmacies/carte' : 'pharmacies', { replace: true })} />
-
-      {mapOpened && (
-        <div hidden={view !== 'carte'} className="mb">
-          <Suspense fallback={<div className="skeleton map" />}><Carte focus={focus} visible={view === 'carte' && active} /></Suspense>
-        </div>
-      )}
-
-      <div hidden={view !== 'liste'}>
       <form className="search" role="search" onSubmit={submit}>
         <Search size={19} />
         <input ref={inputRef} className="input" type="search" enterKeyHint="search" autoComplete="off" autoCorrect="off"
@@ -122,7 +112,18 @@ export default function PharmaSection({ sub, active }) {
           ))}
         </div>
       )}
+      <div style={{ height: 12 }} />
 
+      <Segmented label="Affichage" value={view} options={[['carte', 'Carte de France'], ['liste', 'Liste']]}
+        onChange={(v) => navigate(v === 'liste' ? 'pharmacies/liste' : 'pharmacies', { replace: true })} />
+
+      {mapOpened && (
+        <div hidden={view !== 'carte'} className="mb">
+          <Suspense fallback={<div className="skeleton map" />}><Carte focus={focus} visible={view === 'carte' && active} /></Suspense>
+        </div>
+      )}
+
+      <div hidden={view !== 'liste'}>
       <button className="btn btn-outline btn-block mt-s mb" onClick={aroundMe}><Locate size={19} /> Autour de moi</button>
 
       {s.status === 'loading' && <div className="skeleton mb" style={{ height: 200 }} aria-busy="true" />}
