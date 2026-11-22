@@ -1,57 +1,110 @@
-import { useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import MedSection from './components/MedSection.jsx';
-import ParaSection from './components/ParaSection.jsx';
-import PharmaSection from './components/PharmaSection.jsx';
-import ArmoireSection from './components/ArmoireSection.jsx';
 import Welcome, { introDejaVue } from './components/Welcome.jsx';
-import { Pill, Box } from './lib/icons.jsx';
+import { Pill, Bottle, Pin, Box } from './lib/icons.jsx';
+import { useRoute, useOnline } from './lib/route.js';
+import { whenIdle } from './lib/http.js';
+import { loadIndex } from './lib/bdpm.js';
+
+// Seul l'écran d'accueil (médicaments) est dans le fichier principal ;
+// les trois autres sont chargés à la demande puis préchargés au repos.
+const loaders = {
+  parapharmacie: () => import('./components/ParaSection.jsx'),
+  pharmacies: () => import('./components/PharmaSection.jsx'),
+  armoire: () => import('./components/ArmoireSection.jsx'),
+};
 
 const TABS = [
-  { id: 'med', label: 'Médicaments', Comp: MedSection },
-  { id: 'para', label: 'Parapharmacie', Comp: ParaSection },
-  { id: 'pharma', label: 'Pharmacies', Comp: PharmaSection },
-  { id: 'armoire', label: 'Armoire', Comp: ArmoireSection },
+  { id: 'medicaments', label: 'Médicaments', Icon: Pill, Comp: MedSection },
+  { id: 'parapharmacie', label: 'Parapharmacie', Icon: Bottle, Comp: lazy(loaders.parapharmacie) },
+  { id: 'pharmacies', label: 'Pharmacies', Icon: Pin, Comp: lazy(loaders.pharmacies) },
+  { id: 'armoire', label: 'Armoire', Icon: Box, Comp: lazy(loaders.armoire) },
 ];
 
-function TabIcon({ id }) {
-  if (id === 'med') return <Pill />;
-  if (id === 'armoire') return <Box />;
-  if (id === 'para') return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 8h14M5 8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" /><path d="M10 12h4" />
-    </svg>
-  );
+const OFFLINE_FILES = ['/data/bdpm/index.json', '/data/bdpm/meta.json', '/data/pharmacies/meta.json'];
+
+function Skeleton() {
   return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11Z" /><path d="M12 6v6M9 9h6" />
-    </svg>
+    <div aria-hidden="true">
+      <div className="skeleton" style={{ height: 30, width: '60%', margin: '8px 0 14px' }} />
+      <div className="skeleton" style={{ height: 58, marginBottom: 12 }} />
+      <div className="skeleton" style={{ height: 52 }} />
+    </div>
   );
 }
 
 export default function App() {
-  const [tab, setTab] = useState('med');
+  const [tabId, sub] = useRoute();
+  const active = TABS.find((t) => t.id === tabId) || TABS[0];
+  const online = useOnline();
   const [showIntro, setShowIntro] = useState(() => !introDejaVue());
-  const Active = TABS.find((t) => t.id === tab).Comp;
+
+  // Un onglet déjà ouvert reste monté (masqué) : y revenir est instantané
+  // et la recherche en cours n'est pas perdue.
+  const [opened, setOpened] = useState(() => new Set([active.id]));
+  if (!opened.has(active.id)) setOpened(new Set(opened).add(active.id));
+
+  // Chaque onglet retrouve sa propre position de défilement.
+  const scrolls = useRef({});
+  const current = useRef(active.id);
+  useLayoutEffect(() => {
+    if (current.current === active.id) return;
+    current.current = active.id;
+    window.scrollTo(0, scrolls.current[active.id] || 0);
+  }, [active.id]);
+  useEffect(() => {
+    const save = () => { scrolls.current[current.current] = window.scrollY; };
+    window.addEventListener('scroll', save, { passive: true });
+    return () => window.removeEventListener('scroll', save);
+  }, []);
+
+  // Au repos : précharge la base médicaments et les autres onglets (sauf en mode économie de données).
+  useEffect(() => {
+    if (navigator.connection && navigator.connection.saveData) return undefined;
+    whenIdle(() => {
+      loadIndex().catch(() => {});
+      Object.values(loaders).forEach((load) => load().catch(() => {}));
+    });
+    // Première visite : le service worker s'installe APRÈS ces téléchargements. Dès qu'il
+    // contrôle la page, on lui repasse les fichiers essentiels pour qu'ils soient disponibles hors ligne.
+    const sw = navigator.serviceWorker;
+    if (!sw) return undefined;
+    const keep = () => OFFLINE_FILES.forEach((url) => fetch(url).catch(() => {}));
+    if (sw.controller) return undefined; // visites suivantes : déjà en cache
+    sw.addEventListener('controllerchange', keep, { once: true });
+    return () => sw.removeEventListener('controllerchange', keep);
+  }, []);
 
   if (showIntro) return <Welcome onStart={() => setShowIntro(false)} />;
 
   return (
     <div className="app">
-      <header>
-        <span className="logo"><Pill size={20} stroke="#fff" /></span>
+      <header className="topbar">
+        <span className="mark"><Pill size={19} /></span>
         <span className="brand">Pharmascan</span>
+        {!online && <span className="offline" role="status">Hors ligne</span>}
       </header>
 
-      <main><Active /></main>
+      <main>
+        {TABS.map(({ id, Comp }) => opened.has(id) && (
+          <div key={id} hidden={id !== active.id}>
+            <Suspense fallback={<Skeleton />}>
+              <Comp sub={id === active.id ? sub : undefined} active={id === active.id} />
+            </Suspense>
+          </div>
+        ))}
+      </main>
 
-      <nav className="tabs">
-        <div>
-          {TABS.map((t) => (
-            <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-              <TabIcon id={t.id} />{t.label}
-            </button>
+      <nav className="tabbar" aria-label="Sections">
+        <ul>
+          {TABS.map(({ id, label, Icon }) => (
+            <li key={id}>
+              <a href={`#/${id}`} aria-current={id === active.id ? 'page' : undefined}>
+                <Icon size={22} />{label}
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
       </nav>
     </div>
   );

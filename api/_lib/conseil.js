@@ -1,13 +1,16 @@
 /* ============================================================
    Pharmascan — Conseil IA parapharmacie
    Logique partagée entre la fonction Vercel (api/conseil.js)
-   et le serveur Express local (server/index.js).
+   et le serveur de développement (vite.config.js).
 
-   Avec ANTHROPIC_API_KEY  → Claude (claude-opus-5) répond avec
+   Avec ANTHROPIC_API_KEY  → Claude (modèle : CONSEIL_MODEL) répond avec
    des recommandations structurées (JSON schema garanti).
    Sans clé                → moteur de règles local (mots-clés).
    ============================================================ */
 import Anthropic from '@anthropic-ai/sdk';
+
+// Modèle modifiable sans toucher au code : variable d'environnement CONSEIL_MODEL sur Vercel.
+const MODEL = process.env.CONSEIL_MODEL || 'claude-opus-5';
 
 const SYSTEM = `Tu es le conseiller parapharmacie de l'application Pharmascan.
 Ton rôle : recommander des produits de PARAPHARMACIE uniquement — cosmétiques, soins de la peau et des cheveux, compléments alimentaires, hygiène, solaires, premiers soins en vente libre.
@@ -181,7 +184,7 @@ export async function getConseil(message, history = []) {
     ];
 
     const response = await client.messages.create({
-      model: 'claude-opus-5',
+      model: MODEL,
       max_tokens: 2048,
       system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },

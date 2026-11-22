@@ -11,10 +11,24 @@ const store = {
 };
 
 export function loadArmoire() {
-  try { return JSON.parse(store.get(KEY) || '[]'); } catch { return []; }
+  try {
+    const a = JSON.parse(store.get(KEY) || '[]');
+    if (!Array.isArray(a)) return [];
+    // Tolère les anciennes entrées incomplètes
+    return a.filter((x) => x && x.id && x.name).map((x) => ({ category: 'autre', quantity: 1, expirationDate: '', notes: '', ...x, reminders: { matin: false, midi: false, soir: false, ...(x.reminders || {}) } }));
+  } catch { return []; }
 }
 
-export function saveArmoire(a) { store.set(KEY, JSON.stringify(a)); }
+export function saveArmoire(a) {
+  store.set(KEY, JSON.stringify(a));
+  // Prévient les écrans ouverts (l'armoire reste affichée en arrière-plan)
+  try { window.dispatchEvent(new Event('pharmascan:armoire')); } catch { /* hors navigateur */ }
+}
+
+export function onArmoireChange(callback) {
+  window.addEventListener('pharmascan:armoire', callback);
+  return () => window.removeEventListener('pharmascan:armoire', callback);
+}
 
 export function addMed(med) {
   const a = loadArmoire();
@@ -29,12 +43,15 @@ export function addMed(med) {
     reminders: med.reminders || { matin: false, midi: false, soir: false },
     notes: med.notes || '',
   };
+  if (med.cis) newMed.cis = String(med.cis);
   if (!a.find((x) => x.id === newMed.id)) {
     a.push(newMed);
     saveArmoire(a);
   }
   return a;
 }
+
+export const hasMed = (id) => loadArmoire().some((x) => x.id === String(id));
 
 export function removeMed(id) {
   const a = loadArmoire().filter((x) => x.id !== id);
@@ -59,12 +76,40 @@ export function toggleReminder(id, slot) {
   return a;
 }
 
+// Une date de péremption « 2026-11-30 » reste valable jusqu'à la fin de cette journée (heure locale).
+function daysLeft(expirationDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(expirationDate || '');
+  if (!m) return null;
+  const end = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+  return Math.floor((end - new Date()) / 86400000);
+}
+
+export function isExpired(expirationDate) {
+  const d = daysLeft(expirationDate);
+  return d !== null && d < 0;
+}
+
 export function isExpiringSoon(expirationDate) {
-  if (!expirationDate) return false;
-  const expDate = new Date(expirationDate);
-  const today = new Date();
-  const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-  return expDate <= thirtyDaysFromNow && expDate >= today;
+  const d = daysLeft(expirationDate);
+  return d !== null && d >= 0 && d <= 30;
+}
+
+export const formatDate = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
+
+// --- Médicaments consultés récemment ---
+const RECENTS_KEY = 'pharmascan_recents';
+
+export function loadRecents() {
+  try { const r = JSON.parse(store.get(RECENTS_KEY) || '[]'); return Array.isArray(r) ? r : []; } catch { return []; }
+}
+
+export function pushRecent(cis, nom) {
+  const list = [{ cis: String(cis), nom }, ...loadRecents().filter((r) => r.cis !== String(cis))].slice(0, 6);
+  store.set(RECENTS_KEY, JSON.stringify(list));
+  return list;
 }
 
 // --- Fiche médicale d'urgence ---
@@ -81,10 +126,3 @@ export function loadFiche() {
 }
 
 export function saveFiche(fiche) { store.set(FICHE_KEY, JSON.stringify(fiche)); }
-
-export function isExpired(expirationDate) {
-  if (!expirationDate) return false;
-  const expDate = new Date(expirationDate);
-  const today = new Date();
-  return expDate < today;
-}

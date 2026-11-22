@@ -1,126 +1,133 @@
-import { useState, lazy, Suspense } from 'react';
-import { searchParapharmacie, getPrixIndicatif } from '../lib/api.js';
-import { Scan, Shield, Help } from '../lib/icons.jsx';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { searchParapharmacie } from '../lib/api.js';
+import { parseCode } from '../lib/codes.js';
+import { navigate } from '../lib/route.js';
+import { Segmented, Empty } from './Common.jsx';
 import ConseilIA from './ConseilIA.jsx';
+import { Scan, Shield, Help, Alert, Pill } from '../lib/icons.jsx';
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner.jsx'));
+const clean = (tags) => (tags || []).map((t) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' '));
+const euros = (v) => v.toFixed(2).replace('.', ',') + ' €';
 
-function cleanTags(tags) {
-  return (tags || []).map((t) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' '));
-}
+export default function ParaSection({ sub, active }) {
+  const shown = useRef(sub);
+  if (active) shown.current = sub;
+  const view = shown.current === 'conseil' ? 'conseil' : 'scan';
 
-export default function ParaSection() {
-  const [tab, setTab] = useState('scan'); // 'scan' | 'conseil'
   const [code, setCode] = useState('');
-  const [status, setStatus] = useState('idle'); // idle|loading|found|notfound|error
-  const [product, setProduct] = useState(null);
-  const [prix, setPrix] = useState(null);
+  const [state, setState] = useState({ status: 'idle' }); // idle | loading | found | notfound | invalid | medicament | error
   const [scanning, setScanning] = useState(false);
+  const [conseilOpened, setConseilOpened] = useState(view === 'conseil');
+  if (view === 'conseil' && !conseilOpened) setConseilOpened(true);
+  const seq = useRef(0);
 
-  async function doSearch(c = code) {
-    const cleaned = (c || '').trim().replace(/\s/g, '');
-    if (!cleaned) { setStatus('idle'); return; }
-    if (!/^\d{8,13}$/.test(cleaned)) { setStatus('error'); return; }
-    setStatus('loading');
-    setPrix(null);
+  async function search(raw) {
+    const c = parseCode(raw);
+    if (c.type === 'empty') return setState({ status: 'idle' });
+    if (c.type === 'cip') return setState({ status: 'medicament', cip7: c.cip7 });
+    if (c.type !== 'ean') return setState({ status: 'invalid' });
+    const id = ++seq.current;
+    setState({ status: 'loading' });
     try {
-      const p = await searchParapharmacie(cleaned);
-      if (!p || !p.product_name) return setStatus('notfound');
-      setProduct(p);
-      setStatus('found');
-      setPrix(await getPrixIndicatif(cleaned));
-    } catch (e) {
-      console.error('Erreur parapharmacie:', e);
-      setStatus('error');
+      const product = await searchParapharmacie(c.ean);
+      if (id !== seq.current) return;
+      setState(product ? { status: 'found', product } : { status: 'notfound', code: c.ean });
+    } catch {
+      if (id === seq.current) setState({ status: 'error' });
     }
   }
 
-  function handleDetected(rawCode) {
-    setScanning(false);
-    setCode(rawCode);
-    doSearch(rawCode);
-  }
+  // Lien direct (#/parapharmacie/3337875597197), utilisé depuis l'onglet médicaments.
+  useEffect(() => {
+    if (active && /^\d{8,14}$/.test(sub || '')) { setCode(sub); search(sub); }
+  }, [active, sub]);
 
-  const allerg = product ? cleanTags(product.allergens_tags) : [];
-  const name = product ? (product.product_name_fr || product.product_name || 'Produit') : '';
-  const ing = product ? (product.ingredients_text_fr || product.ingredients_text || '') : '';
-  const fmt = (v) => v.toFixed(2).replace('.', ',');
-
-  const tabBtn = (active, color) => ({
-    flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer',
-    fontSize: 13, fontWeight: 600,
-    background: active ? '#fff' : 'transparent',
-    color: active ? color : 'var(--muted)',
-    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
-    transition: 'all 0.2s',
-  });
+  const p = state.product;
+  const allergenes = p ? clean(p.allergens_tags) : [];
+  const ingredients = p ? (p.ingredients_text_fr || p.ingredients_text || '') : '';
 
   return (
     <section>
       <h1 className="title">Parapharmacie</h1>
-      <p className="sub">Scannez un produit ou demandez conseil à l'assistant.</p>
+      <p className="lead">Scannez un produit pour lire sa composition, ou décrivez votre besoin à l'assistant.</p>
 
-      {/* Sous-onglets */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18, background: 'var(--surface)', borderRadius: 12, padding: 4 }}>
-        <button onClick={() => setTab('scan')} style={tabBtn(tab === 'scan', 'var(--teal-ink)')}>📷 Scanner</button>
-        <button onClick={() => setTab('conseil')} style={tabBtn(tab === 'conseil', 'var(--teal-ink)')}>🤖 Conseil IA</button>
-      </div>
+      <Segmented label="Mode" value={view} options={[['scan', 'Scanner un produit'], ['conseil', 'Assistant conseil']]}
+        onChange={(v) => navigate(v === 'conseil' ? 'parapharmacie/conseil' : 'parapharmacie', { replace: true })} />
 
-      {tab === 'conseil' && <ConseilIA />}
-      {tab === 'scan' && (<>
+      {conseilOpened && <div hidden={view !== 'conseil'}><ConseilIA /></div>}
 
-      <button className="scanbtn" onClick={() => setScanning(true)}>
-        <Scan stroke="#fff" /> Scanner un produit
-      </button>
+      <div hidden={view !== 'scan'}>
+        <button className="btn btn-primary btn-hero btn-block mb" onClick={() => setScanning(true)}>
+          <Scan size={24} /> Scanner un produit
+        </button>
 
-      {scanning && (
-        <Suspense fallback={null}>
-          <BarcodeScanner
-            onDetected={handleDetected}
-            onClose={() => setScanning(false)}
-          />
-        </Suspense>
-      )}
+        {scanning && (
+          <Suspense fallback={null}>
+            <BarcodeScanner title="Scanner un produit" hint="Placez le code-barres du produit dans le cadre."
+              onDetected={(raw) => { setScanning(false); const c = parseCode(raw); setCode(c.ean || c.cip13 || ''); search(raw); }}
+              onClose={() => setScanning(false)} />
+          </Suspense>
+        )}
 
-      <div className="field">
-        <input value={code} inputMode="numeric" placeholder="Code-barres du produit" autoComplete="off"
-          onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doSearch()} />
-        <button onClick={() => doSearch()}>Chercher</button>
-      </div>
-      <p className="note">Astuce : prenez un produit cosmétique de votre salle de bain et saisissez le code sous le code-barres. La recherche interroge la base ouverte Open Beauty Facts.</p>
+        <form className="inline" onSubmit={(e) => { e.preventDefault(); search(code); }}>
+          <input className="input grow" inputMode="numeric" autoComplete="off" placeholder="Code-barres (8 à 13 chiffres)" aria-label="Code-barres du produit"
+            value={code} onChange={(e) => setCode(e.target.value)} />
+          <button className="btn btn-outline" type="submit">Chercher</button>
+        </form>
 
-      {status === 'loading' && <div className="loader">Recherche en cours…</div>}
+        <div className="mt">
+          {state.status === 'idle' && <p className="small">Le code est imprimé sous le code-barres. La recherche couvre les bases ouvertes Open Beauty Facts, Open Food Facts et Open Products Facts.</p>}
+          {state.status === 'loading' && <div className="skeleton" style={{ height: 220 }} aria-busy="true" />}
 
-      {status === 'notfound' && (
-        <div className="card empty">
-          <div className="circle"><Help size={32} stroke="#9A9C97" /></div>
-          <h2>Produit non trouvé</h2>
-          <p>Ce produit n'est pas encore dans la base ouverte. Vous pourrez contribuer à l'enrichir plus tard.</p>
-        </div>
-      )}
+          {state.status === 'invalid' && (
+            <Empty icon={<Help size={26} />} title="Code incomplet"><p>Un code-barres compte 8 à 13 chiffres. Vérifiez votre saisie.</p></Empty>
+          )}
+          {state.status === 'medicament' && (
+            <Empty icon={<Pill size={26} />} title="Ce code est celui d'un médicament">
+              <p>Les codes qui commencent par 3400 identifient des médicaments.</p>
+              <button className="btn btn-primary mt" onClick={() => navigate(`medicaments/${state.cip7}`)}>Voir la fiche du médicament</button>
+            </Empty>
+          )}
+          {state.status === 'notfound' && (
+            <Empty icon={<Help size={26} />} title="Produit absent des bases ouvertes">
+              <p>Le code <span className="code">{state.code}</span> n'est référencé dans aucune des trois bases. La composition figure sur l'emballage.</p>
+            </Empty>
+          )}
+          {state.status === 'error' && (
+            <Empty icon={<Alert size={26} />} title="Recherche impossible pour le moment">
+              <p>Vérifiez votre connexion, puis réessayez.</p>
+              <button className="btn btn-primary mt" onClick={() => search(code)}>Réessayer</button>
+            </Empty>
+          )}
 
-      {status === 'error' && (
-        <div className="card empty"><h2>Recherche indisponible</h2><p>Le code doit contenir entre 8 et 13 chiffres. Vérifiez votre saisie ou votre connexion.</p></div>
-      )}
-
-      {status === 'found' && product && (
-        <div className="card">
-          <span className="badge live">Produit trouvé</span>
-          <div className="resultName">{name}</div>
-          {product.brands && <p className="resultMeta">{product.brands}</p>}
-          <p className="source"><Shield size={14} stroke="#9A9C97" /> Source : Open Beauty Facts</p>
-          <div className="block"><p className="lbl">Allergènes signalés</p><p className="val">{allerg.length ? allerg.join(', ') : 'Aucun allergène listé pour ce produit.'}</p></div>
-          <div className="block"><p className="lbl">Ingrédients (INCI)</p><p className="val">{ing || "Liste d'ingrédients non renseignée dans la base."}</p></div>
-          {prix && (
-            <div className="block">
-              <p className="lbl">Prix indicatif</p>
-              <p className="val">{prix.min === prix.max ? `${fmt(prix.min)} €` : `${fmt(prix.min)} – ${fmt(prix.max)} €`}</p>
-              <p className="note" style={{ marginTop: 6 }}>Prix indicatif issu de relevés communautaires (Open Prices){prix.date ? ` (dernier relevé : ${prix.date})` : ''}. Il varie selon la pharmacie et n'est pas un prix officiel.</p>
-            </div>
+          {state.status === 'found' && (
+            <article className="card appear">
+              <span className="tag info">Produit trouvé</span>
+              <h2 className="h2" style={{ marginTop: 12 }}>{p.product_name_fr || p.product_name}</h2>
+              {(p.brands || p.quantity) && <p className="meta" style={{ marginTop: 4 }}>{[p.brands, p.quantity].filter(Boolean).join(', ')}</p>}
+              <dl className="facts">
+                <div className="fact">
+                  <dt>Allergènes signalés</dt>
+                  <dd>{allergenes.length ? allergenes.join(', ') : <span className="meta">Aucun allergène listé dans la base pour ce produit.</span>}</dd>
+                </div>
+                <div className="fact">
+                  <dt>Ingrédients</dt>
+                  <dd style={{ fontSize: 14 }}>{ingredients || <span className="meta">Liste non renseignée dans la base. Consultez l'emballage.</span>}</dd>
+                </div>
+                {p.prix && (
+                  <div className="fact">
+                    <dt>Prix constaté</dt>
+                    <dd className="num">{p.prix.min === p.prix.max ? euros(p.prix.min) : `${euros(p.prix.min)} à ${euros(p.prix.max)}`}</dd>
+                    <dd className="small">Relevés par des contributeurs d'Open Prices{p.prix.date ? `, le plus récent du ${p.prix.date.split('-').reverse().join('/')}` : ''}. Ce n'est pas un prix officiel : il varie selon le point de vente.</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="small inline mt" style={{ gap: 6 }}><Shield size={14} /> <span>Source : {p.source}, base collaborative ouverte.</span></p>
+            </article>
           )}
         </div>
-      )}
-      </>)}
+      </div>
     </section>
   );
 }

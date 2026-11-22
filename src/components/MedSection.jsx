@@ -1,263 +1,231 @@
-import { useState, useCallback, useRef, lazy, Suspense } from 'react';
-import { searchMedicaments, getGeneriques, medAutocomplete, noAccents, debounce } from '../lib/api.js';
-import { addMed } from '../lib/storage.js';
-import { Suggest, Disclaimer } from './Common.jsx';
-import { Scan, Shield, FileText, Plus, Help, Chevron, ChevronLeft, Alert, Search } from '../lib/icons.jsx';
+import { useDeferredValue, useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { searchMedicaments, getFicheByCip, loadMeta } from '../lib/bdpm.js';
+import { parseCode } from '../lib/codes.js';
+import { loadRecents, formatDate } from '../lib/storage.js';
+import { navigate, goBack } from '../lib/route.js';
+import { Empty } from './Common.jsx';
+import MedFiche from './MedFiche.jsx';
+import { Scan, Search, Close, Chevron, Help, Alert, Clock } from '../lib/icons.jsx';
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner.jsx'));
+const EXEMPLES = ['Doliprane', 'Ibuprofène', 'Amoxicilline', 'Spasfon'];
+const isCode = (q) => /^[\d\s.\-]{7,}$/.test(q);
 
-const CHIPS = ['doliprane', 'codoliprane', 'ibuprofene'];
-const noticeUrl = (cis) => `https://base-donnees-publique.medicaments.gouv.fr/extrait.php?specid=${cis}`;
-
-function substancesOf(m) {
-  return (m.composition || [])
-    .filter((c) => !c.natureComposant || c.natureComposant === 'SA')
-    .map((c) => `${c.denominationSubstance}${c.dosage ? ' ' + c.dosage : ''}`)
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .join(' · ');
-}
-
-export default function MedSection() {
+export default function MedSection({ sub, active }) {
   const [query, setQuery] = useState('');
-  const [sugg, setSugg] = useState([]);
-  const [status, setStatus] = useState('idle'); // idle|loading|list|fiche|notfound|ean|error
-  const [list, setList] = useState([]);
-  const [med, setMed] = useState(null);
-  const [generics, setGenerics] = useState([]);
-  const [added, setAdded] = useState(false);
+  const deferred = useDeferredValue(query);
+  const [results, setResults] = useState(null);       // { total, items, corrige }
+  const [base, setBase] = useState('idle');           // idle | loading | ready | error
+  const [code, setCode] = useState(null);             // null | { kind: 'loading' | 'ean' | 'introuvable' | 'illisible' | 'erreur', value }
   const [scanning, setScanning] = useState(false);
-  const [lastCode, setLastCode] = useState(''); // code scanné qui n'a pas abouti
-  const searchSeq = useRef(0); // ignore les réponses de recherches obsolètes
+  const [recents, setRecents] = useState(loadRecents);
+  const [meta, setMeta] = useState(null);
+  const [attempt, setAttempt] = useState(0);         // « Réessayer » relance la recherche
+  const scan = useRef(null);                          // ce que le scan a lu : { cis, cip13, peremption, lot }
+  const inputRef = useRef(null);
 
-  // Debounce court (200 ms) pour des suggestions plus réactives
-  const debouncedAutocomplete = useCallback(
-    debounce(async (v) => {
-      if (v.trim().length >= 2) {
-        setSugg((await medAutocomplete(v.trim())).map((n) => ({ label: n, value: n })));
-      } else {
-        setSugg([]);
-      }
-    }, 200),
-    []
-  );
+  // Sous-route : l'onglet garde sa fiche ouverte quand on passe sur un autre onglet.
+  const shown = useRef(sub);
+  if (active) shown.current = sub;
+  const cis = /^\d{8}$/.test(shown.current || '') ? shown.current : null;
 
-  function onInput(v) {
-    setQuery(v);
-    debouncedAutocomplete(v);
-  }
+  useEffect(() => { loadMeta().then(setMeta).catch(() => {}); }, []);
 
-  async function showFiche(m) {
-    setMed(m); setAdded(false); setGenerics([]); setStatus('fiche');
-    setGenerics(await getGeneriques(m));
-  }
+  // Lien direct par code CIP 7 (#/medicaments/3595583), utilisé depuis l'onglet parapharmacie.
+  useEffect(() => {
+    if (active && /^\d{7}$/.test(sub || '')) resolveCip({ cip7: sub, cip13: '' }, true);
+  }, [active, sub]);
 
-  async function doSearch(q) {
-    const term = (q ?? query).trim();
-    if (!term || term.length < 2) { setStatus('idle'); return; }
-    setSugg([]);
-    setStatus('loading');
-    const seq = ++searchSeq.current;
+  // Recherche au fil de la frappe : la base est dans le navigateur, la réponse est immédiate.
+  useEffect(() => {
+    const q = deferred.trim();
+    if (q.length < 2 || isCode(q)) { setResults(null); return undefined; }
+    let stale = false;
+    setBase((s) => (s === 'ready' ? s : 'loading'));
+    searchMedicaments(q)
+      .then((r) => { if (!stale) { setResults(r); setBase('ready'); } })
+      .catch(() => { if (!stale) setBase('error'); });
+    return () => { stale = true; };
+  }, [deferred, attempt]);
+
+  async function resolveCip(c, replace = false) {
+    setCode({ kind: 'loading' });
     try {
-      const { list: results, mode, digits } = await searchMedicaments(term);
-      if (seq !== searchSeq.current) return; // une recherche plus récente a pris le relais
-
-      // EAN lu au scan → pas un code médicament connu
-      if (mode === 'ean') {
-        setLastCode(digits);
-        return setStatus('ean');
-      }
-
-      if (!results || !results.length) {
-        // Code CIP scanné mais inconnu → propose de chercher par nom
-        if (mode === 'cip_notfound') {
-          setLastCode(term);
-          return setStatus('cip_notfound');
-        }
-        return setStatus('notfound');
-      }
-
-      if (results.length === 1) return showFiche(results[0]);
-      setList(results);
-      setStatus('list');
-    } catch (e) {
-      if (seq !== searchSeq.current) return;
-      console.error('Erreur recherche:', e);
-      setStatus('error');
-    }
+      const fiche = await getFicheByCip(c.cip7);
+      if (!fiche) return setCode({ kind: 'introuvable', value: c.cip13 || c.cip7 });
+      scan.current = { cis: fiche.cis, cip13: c.cip13, peremption: c.peremption || '', lot: c.lot || '' };
+      setCode(null);
+      navigate(`medicaments/${fiche.cis}`, { replace });
+    } catch { setCode({ kind: 'erreur' }); }
   }
 
-  // Après un scan qui échoue, relance une recherche texte avec ce que l'utilisateur saisit
-  function doFallbackSearch(name) {
-    setQuery(name);
-    doSearch(name);
+  function handleCode(raw) {
+    const c = parseCode(raw);
+    if (c.type === 'cip') return resolveCip(c);
+    if (c.type === 'ean') return setCode({ kind: 'ean', value: c.ean });
+    if (c.type === 'texte') return setCode({ kind: 'illisible' });
+    return setCode({ kind: 'introuvable', value: raw });
   }
 
-  function handleDetected(rawCode) {
-    setScanning(false);
-    setQuery(rawCode);
-    doSearch(rawCode);
+  function submit(e) {
+    e.preventDefault();
+    const q = query.trim();
+    if (isCode(q)) handleCode(q);
+    inputRef.current?.blur();
   }
 
-  function addToArmoire() {
-    addMed({ id: String(med.cis), name: med.elementPharmaceutique || 'Médicament', substance: substancesOf(med) });
-    setAdded(true);
+  function change(v) {
+    setQuery(v);
+    if (code) setCode(null);
   }
+
+  function open(id) {
+    scan.current = null;
+    navigate(`medicaments/${id}`);
+  }
+
+  if (cis) {
+    return (
+      <MedFiche
+        cis={cis}
+        scan={scan.current && scan.current.cis === cis ? scan.current : null}
+        meta={meta}
+        onOpen={open}
+        onSeen={setRecents}
+        onBack={() => goBack('medicaments')}
+      />
+    );
+  }
+
+  const q = deferred.trim();
+  const typing = q.length >= 2 && !isCode(q);
 
   return (
     <section>
       <h1 className="title">Quel est ce médicament ?</h1>
-      <p className="sub">Scannez la boîte ou cherchez par nom pour voir l'information officielle.</p>
+      <p className="lead">Scannez la boîte ou tapez son nom pour lire l'information officielle.</p>
 
-      <button className="scanbtn" onClick={() => setScanning(true)}>
-        <Scan stroke="#fff" /> Scanner un médicament
+      <button className="btn btn-primary btn-hero btn-block mb" onClick={() => setScanning(true)}>
+        <Scan size={24} /> Scanner la boîte
       </button>
 
       {scanning && (
         <Suspense fallback={null}>
-          <BarcodeScanner onDetected={handleDetected} onClose={() => setScanning(false)} />
+          <BarcodeScanner title="Scanner un médicament" hint="Visez le petit carré (DataMatrix) ou le code-barres de la boîte."
+            onDetected={(raw) => { setScanning(false); setQuery(''); handleCode(raw); }}
+            onClose={() => setScanning(false)} />
         </Suspense>
       )}
 
-      <div className="field">
-        <input value={query} placeholder="Nom ou code CIP" autoComplete="off"
-          onChange={(e) => onInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && doSearch()}
-          onBlur={() => setTimeout(() => setSugg([]), 150)} />
-        <button onClick={() => doSearch()}>Chercher</button>
-      </div>
-      <Suggest items={sugg} onPick={(it) => { setQuery(it.value); doSearch(it.value); }} />
+      <form className="search" role="search" onSubmit={submit}>
+        <Search size={19} />
+        <input ref={inputRef} className="input" type="search" enterKeyHint="search" autoComplete="off" autoCorrect="off" spellCheck="false"
+          placeholder="Nom, substance ou code CIP" aria-label="Rechercher un médicament"
+          value={query} onChange={(e) => change(e.target.value)} />
+        {query && <button type="button" className="clear" aria-label="Effacer" onClick={() => { change(''); inputRef.current?.focus(); }}><Close size={18} /></button>}
+      </form>
 
-      <div className="chips">
-        {CHIPS.map((c) => <span key={c} className="chip" onClick={() => { setQuery(c); doSearch(c); }}>{c}</span>)}
-      </div>
-
-      {status === 'loading' && <div className="loader">Recherche dans la base officielle…</div>}
-
-      {/* Code EAN générique — pas un médicament */}
-      {status === 'ean' && (
-        <div className="card empty">
-          <div className="circle"><Scan size={32} stroke="#9A9C97" /></div>
-          <h2>Code EAN, pas un code CIP</h2>
-          <p>Le code <code style={{ background: '#f0f0f0', padding: '1px 5px', borderRadius: 4, fontSize: 13 }}>{lastCode}</code> est un code-barres EAN standard, pas un code médicament (CIP). Les médicaments utilisent un code CIP à 7 ou 13 chiffres (commençant par 340).</p>
-          <p style={{ marginTop: 8 }}>Cherchez plutôt par le <b>nom</b> du médicament :</p>
-          <FallbackInput onSearch={doFallbackSearch} />
-        </div>
+      {/* --- Code saisi ou scanné --- */}
+      {isCode(query.trim()) && !code && (
+        <button className="btn btn-outline btn-block mt" onClick={submit}>Chercher le code {query.trim()}</button>
       )}
-
-      {/* Code CIP scanné mais introuvable dans la BDPM */}
-      {status === 'cip_notfound' && (
-        <div className="card empty">
-          <div className="circle"><Help size={32} stroke="#9A9C97" /></div>
-          <h2>Code non trouvé dans la BDPM</h2>
-          <p>Le code <code style={{ background: '#f0f0f0', padding: '1px 5px', borderRadius: 4, fontSize: 13 }}>{lastCode}</code> n'a pas été reconnu. Il peut s'agir d'un médicament étranger, d'un générique récent ou d'un code mal lu.</p>
-          <p style={{ marginTop: 8 }}>Essayez avec le <b>nom</b> imprimé sur la boîte :</p>
-          <FallbackInput onSearch={doFallbackSearch} />
-        </div>
-      )}
-
-      {/* Recherche texte sans résultat */}
-      {status === 'notfound' && (
-        <div className="card empty">
-          <div className="circle"><Help size={32} stroke="#9A9C97" /></div>
-          <h2>Médicament non trouvé</h2>
-          <p>Aucun résultat dans la BDPM pour <b>« {query} »</b>. Vérifiez l'orthographe, essayez le nom générique ou la substance active (ex. « paracétamol »).</p>
-          <div className="chips" style={{ marginTop: 12, justifyContent: 'center' }}>
-            {CHIPS.map((c) => <span key={c} className="chip" onClick={() => { setQuery(c); doSearch(c); }}>{c}</span>)}
+      {code?.kind === 'loading' && <div className="skeleton mt" style={{ height: 120 }} />}
+      {code?.kind === 'ean' && (
+        <Empty icon={<Scan size={26} />} title="Ce code n'est pas celui d'un médicament">
+          <p>Le code <span className="code">{code.value}</span> est un code-barres de produit courant. Les médicaments portent un code CIP qui commence par 3400.</p>
+          <div className="stack mt">
+            <button className="btn btn-primary" onClick={() => navigate(`parapharmacie/${code.value}`)}>Chercher en parapharmacie</button>
+            <button className="btn btn-outline" onClick={() => { setCode(null); inputRef.current?.focus(); }}>Chercher par nom</button>
           </div>
-        </div>
+        </Empty>
+      )}
+      {code?.kind === 'introuvable' && (
+        <Empty icon={<Help size={26} />} title="Code absent de la base officielle">
+          <p>Le code <span className="code">{code.value}</span> n'existe pas dans la BDPM. Il peut s'agir d'un médicament étranger ou d'un code mal lu.</p>
+          <div className="stack mt">
+            <button className="btn btn-primary" onClick={() => setScanning(true)}>Scanner à nouveau</button>
+            <button className="btn btn-outline" onClick={() => { setCode(null); setQuery(''); inputRef.current?.focus(); }}>Chercher par nom</button>
+          </div>
+        </Empty>
+      )}
+      {code?.kind === 'illisible' && (
+        <Empty icon={<Help size={26} />} title="Ce code n'identifie pas un médicament">
+          <p>Visez le petit carré noir et blanc (DataMatrix) ou le code-barres imprimé sur la boîte.</p>
+          <button className="btn btn-primary mt" onClick={() => setScanning(true)}>Scanner à nouveau</button>
+        </Empty>
+      )}
+      {(code?.kind === 'erreur' || (typing && base === 'error')) && (
+        <Empty icon={<Alert size={26} />} title="Base des médicaments inaccessible">
+          <p>Vérifiez votre connexion, puis réessayez.</p>
+          <button className="btn btn-primary mt" onClick={() => { setCode(null); setBase('idle'); setAttempt((n) => n + 1); }}>Réessayer</button>
+        </Empty>
       )}
 
-      {status === 'error' && (
-        <div className="card empty">
-          <div className="circle"><Alert size={32} stroke="#9A9C97" /></div>
-          <h2>Base officielle injoignable</h2>
-          <p>Vérifiez votre connexion internet et réessayez.</p>
+      {/* --- Résultats au fil de la frappe --- */}
+      {typing && base === 'loading' && !results && (
+        <div className="mt" aria-busy="true">
+          <p className="count">Chargement de la base officielle…</p>
+          <div className="skeleton" style={{ height: 180 }} />
         </div>
       )}
+      {typing && results && !code && (
+        results.total === 0 ? (
+          <Empty icon={<Help size={26} />} title="Aucun médicament trouvé">
+            <p>Rien dans la base officielle pour « {q} ». Vérifiez l'orthographe ou essayez la substance active, par exemple « paracétamol ».</p>
+          </Empty>
+        ) : (
+          <>
+            <p className="count" role="status">
+              {results.corrige && <>Aucun résultat pour « {q} ». Résultats pour « {results.corrige} » : </>}
+              {results.total} médicament{results.total > 1 ? 's' : ''}
+              {results.total > results.items.length ? `, les ${results.items.length} premiers affichés. Précisez le dosage ou la forme.` : ''}
+            </p>
+            <div className="card flush results">
+              <div className="rows">
+                {results.items.map((m) => (
+                  <button key={m.cis} className={'row' + (m.commercialise ? '' : ' dim')} onClick={() => open(m.cis)}>
+                    <div className="body">
+                      <div className="name">{m.nom}</div>
+                      <div className="sub">{m.titulaire}{m.commercialise ? '' : ' — non commercialisé'}</div>
+                    </div>
+                    <Chevron size={17} className="chev" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )
+      )}
 
-      {status === 'list' && (
+      {/* --- Écran de départ --- */}
+      {!typing && !code && !isCode(query.trim()) && (
         <>
-          <p className="lbl" style={{ margin: '0 2px 10px' }}>{list.length} résultats — choisissez la forme exacte</p>
-          <div className="medlist">
-            {list.slice(0, 40).map((m, i) => (
-              <button key={i} className="medrow" onClick={() => showFiche(m)}>
-                <div className="medrow-info">
-                  <div className="medrow-name">{m.elementPharmaceutique || 'Médicament'}</div>
-                  <div className="medrow-sub">{m.formePharmaceutique || ''}{m.titulaire ? ' · ' + m.titulaire : ''}</div>
-                </div>
-                <Chevron size={16} />
-              </button>
-            ))}
+          <div className="chips mt">
+            {EXEMPLES.map((c) => <button key={c} className="chip" onClick={() => change(c)}>{c}</button>)}
           </div>
+          {recents.length > 0 && (
+            <>
+              <p className="count" style={{ marginTop: 22 }}>Consultés récemment</p>
+              <div className="card flush">
+                <div className="rows">
+                  {recents.map((r) => (
+                    <button key={r.cis} className="row" onClick={() => open(r.cis)}>
+                      <Clock size={17} className="chev" />
+                      <div className="body"><div className="name">{r.nom}</div></div>
+                      <Chevron size={17} className="chev" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          {meta && (
+            <p className="small" style={{ marginTop: 22 }}>
+              {meta.specialites.toLocaleString('fr-FR')} médicaments, issus de la base de données publique des médicaments (ANSM). Données du {formatDate(meta.genere_le)}, consultables hors ligne.
+            </p>
+          )}
         </>
       )}
-
-      {status === 'fiche' && med && <Fiche med={med} generics={generics} added={added} onAdd={addToArmoire}
-        onBack={list.length > 1 ? () => setStatus('list') : null} />}
     </section>
-  );
-}
-
-// Champ de saisie texte affiché dans les écrans d'erreur code
-function FallbackInput({ onSearch }) {
-  const [val, setVal] = useState('');
-  return (
-    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-      <input
-        value={val} onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && val.trim() && onSearch(val.trim())}
-        placeholder="Nom du médicament…"
-        style={{ flex: 1, padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', fontSize: 14 }}
-      />
-      <button
-        onClick={() => val.trim() && onSearch(val.trim())}
-        style={{ padding: '9px 14px', borderRadius: 9, background: 'var(--teal)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-      >
-        <Search size={16} stroke="#fff" />
-      </button>
-    </div>
-  );
-}
-
-function Fiche({ med, generics, added, onAdd, onBack }) {
-  const subs = substancesOf(med);
-  const pres = (med.presentation || []).find((p) => p.prix != null) || (med.presentation || [])[0] || {};
-  let price = '';
-  if (pres.prix != null) price += Number(pres.prix).toFixed(2).replace('.', ',') + ' €';
-  if (pres.tauxRemboursement) price += (price ? ' · ' : '') + 'Remboursé à ' + pres.tauxRemboursement;
-  const conditions = (med.conditions || []).join(' · ');
-
-  return (
-    <>
-      {onBack && <button className="backlink" onClick={onBack}><ChevronLeft size={14} /> Toutes les formes</button>}
-      <div className="card">
-        <span className="badge ok">Médicament identifié</span>
-        <div className="resultName">{med.elementPharmaceutique || 'Médicament'}</div>
-        <p className="resultMeta">{med.formePharmaceutique || ''}{med.titulaire ? ' · ' + med.titulaire : ''}</p>
-        <p className="source"><Shield size={14} stroke="#9A9C97" /> Source : BDPM — base officielle (ANSM)</p>
-
-        {subs && <div className="block"><p className="lbl">Substance(s) active(s) et dosage</p><p className="val">{subs}</p></div>}
-        {price && <div className="block"><p className="lbl">Prix &amp; remboursement</p><p className="val">{price}</p></div>}
-        {generics.length > 0 && (
-          <div className="block">
-            <p className="lbl">Équivalents (même substance active)</p>
-            <p className="val">{generics.join(' · ')}</p>
-            <p className="note" style={{ marginTop: 6 }}>Les génériques contiennent la même substance active et sont souvent moins chers. Demandez à votre pharmacien.</p>
-          </div>
-        )}
-        <div className="block">
-          <p className="lbl">Disponibilité</p>
-          <span className="avail ok"><span className="dot" /> Disponible</span>
-        </div>
-        {conditions && <div className="block"><p className="lbl">Conditions de délivrance</p><p className="val">{conditions}</p></div>}
-        <div className="block hl"><p className="lbl">Posologie</p><p className="val">La posologie figure dans la notice officielle. Suivez la notice et l'avis de votre pharmacien.</p></div>
-
-        <a className="linkbtn" href={noticeUrl(med.cis)} target="_blank" rel="noreferrer"><FileText size={18} /> Voir la notice officielle</a>
-        <button className={'addbtn' + (added ? ' done' : '')} onClick={added ? undefined : onAdd}>
-          {added ? 'Ajouté à mon armoire ✓' : <><Plus size={17} /> Ajouter à mon armoire</>}
-        </button>
-        <Disclaimer />
-      </div>
-    </>
   );
 }
