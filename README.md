@@ -32,7 +32,8 @@ Navigateur (React + Vite + PWA)
    │                      → recherche instantanée, fiches, codes CIP, génériques,
    │                        ruptures et tensions ANSM. Fonctionne hors ligne.
    ├─ /data/pharmacies/…  ~19 700 officines par département (OpenStreetMap)
-   │                      → par commune ou « autour de moi », sans service externe.
+   │                      → par commune, « autour de moi » ou sur la carte de France
+   │                        (Leaflet + fond Plan IGN), sans service payant ni clé.
    ├─ data.geopf.fr       autocomplétion des communes (Géoplateforme IGN, appel direct)
    └─ /api/…              fonctions Vercel, mises en cache par le CDN
         ├─ parapharmacie/[code]  Open Beauty / Food / Products Facts + Open Prices, en parallèle
@@ -48,6 +49,8 @@ Navigateur (React + Vite + PWA)
 - `src/lib/codes.js` — lecture des codes scannés (DataMatrix GS1, CIP 13, CIP 7, EAN)
 - `src/lib/pharmacies.js` — pharmacies par commune ou par rayon, communes
 - `src/lib/storage.js` — armoire, fiche d'urgence, historique (stockage local de l'appareil)
+- `src/components/Carte.jsx` — carte interactive des pharmacies (chargée à la demande)
+- `index.html` — contient l'animation d'arrivée (une fois par session, un toucher la passe)
 - `src/components/*` — les 4 sections (Médicaments, Parapharmacie, Pharmacies, Armoire)
 - `src/index.css` — la direction artistique (variables de couleur, mode sombre, composants)
 - `api/*` — les fonctions serverless ; `vite.config.js` les exécute aussi en local

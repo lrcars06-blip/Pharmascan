@@ -62,7 +62,8 @@ export default function MedSection({ sub, active }) {
   function handleCode(raw) {
     const c = parseCode(raw);
     if (c.type === 'cip') return resolveCip(c);
-    if (c.type === 'ean') return setCode({ kind: 'ean', value: c.ean });
+    // Code-barres d'un autre produit : on l'identifie directement côté parapharmacie.
+    if (c.type === 'ean') { setQuery(''); return navigate(`parapharmacie/${c.ean}`); }
     if (c.type === 'texte') return setCode({ kind: 'illisible' });
     return setCode({ kind: 'introuvable', value: raw });
   }

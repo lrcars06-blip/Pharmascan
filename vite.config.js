@@ -65,8 +65,8 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           cleanupOutdatedCaches: true,
           // Pré-cache : uniquement l'application (≈ 70 Ko compressés).
-          // Les données et le décodeur de secours (iPhone) sont mis en cache à la demande.
-          globIgnores: ['**/data/**', '**/zxing-*.js'],
+          // Les données, la carte et le décodeur de secours (iPhone) sont mis en cache à la demande.
+          globIgnores: ['**/data/**', '**/zxing-*.js', '**/Carte-*'],
           navigateFallbackDenylist: [/^\/api\//, /^\/data\//],
           runtimeCaching: [
             { // Bases embarquées (médicaments, pharmacies) : réponse immédiate depuis le cache, mise à jour en arrière-plan

@@ -165,9 +165,9 @@ export default function BarcodeScanner({ onDetected, onClose, title = 'Scanner u
         </div>
       ) : (
         <div className="foot">
-          <p role="status">{ready ? hint : 'Ouverture de la caméra…'}</p>
+          <p role="status">{ready ? hint : 'Ouverture de la caméra…'}{ready && torch === null ? ' Pas assez de lumière ? Rapprochez-vous d\'une lampe : ce navigateur ne donne pas accès au flash.' : ''}</p>
           <div className="tools">
-            {torch !== null && <button className="round" aria-pressed={torch} aria-label="Lampe torche" onClick={toggleTorch}><Flash size={21} /></button>}
+            {torch !== null && <button className="round wide" aria-pressed={torch} onClick={toggleTorch}><Flash size={20} /> {torch ? 'Éteindre le flash' : 'Allumer le flash'}</button>}
             {cams.length > 1 && <button className="round" aria-label="Changer de caméra" onClick={switchCamera}><Swap size={21} /></button>}
           </div>
         </div>

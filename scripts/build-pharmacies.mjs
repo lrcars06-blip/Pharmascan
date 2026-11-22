@@ -1,7 +1,8 @@
 /* ============================================================
    Construit la base locale de TOUTES les pharmacies de France.
 
-   1. Télécharge les ~21 000 officines depuis OpenStreetMap
+   1. Télécharge les ~21 000 officines (amenity=pharmacy) et les
+      parapharmacies (shop=chemist, marquées type:"para") depuis OpenStreetMap
       (requête Overpass France entière, 3 miroirs).
    2. Attribue à chacune sa commune (code INSEE) via le service
       officiel de l'État : Base Adresse Nationale, en masse.
@@ -30,15 +31,15 @@ const OVERPASS = [
 
 const UA = { 'User-Agent': 'Pharmascan/1.0 (construction base locale, usage unique)' };
 
-// meta.json : compteurs + emprise [latMin, lonMin, latMax, lonMax, nombre] par département
+// meta.json : compteurs + [latMin, lonMin, latMax, lonMax, nombre, latCentre, lonCentre] par département
 function writeMeta(parDept, genereLe) {
   const depts = {};
   let total = 0;
   for (const [dept, list] of parDept) {
-    let a = 90, b = 180, c = -90, d = -180;
-    for (const p of list) { a = Math.min(a, p.lat); b = Math.min(b, p.lon); c = Math.max(c, p.lat); d = Math.max(d, p.lon); }
+    let a = 90, b = 180, c = -90, d = -180, sLat = 0, sLon = 0;
+    for (const p of list) { a = Math.min(a, p.lat); b = Math.min(b, p.lon); c = Math.max(c, p.lat); d = Math.max(d, p.lon); sLat += p.lat; sLon += p.lon; }
     const r = (x) => Math.round(x * 1e4) / 1e4;
-    depts[dept] = [r(a), r(b), r(c), r(d), list.length];
+    depts[dept] = [r(a), r(b), r(c), r(d), list.length, r(sLat / list.length), r(sLon / list.length)];
     total += list.length;
   }
   writeFileSync(join(OUT_DIR, 'meta.json'), JSON.stringify({
@@ -63,7 +64,7 @@ if (process.argv.includes('--meta-only')) {
 
 // --- Étape 1 : toutes les pharmacies de France depuis OpenStreetMap ---
 async function overpassPays(iso, minimum) {
-  const q = `[out:json][timeout:300];area["ISO3166-1"="${iso}"][admin_level=2]->.z;(node["amenity"="pharmacy"](area.z);way["amenity"="pharmacy"](area.z););out center tags;`;
+  const q = `[out:json][timeout:300];area["ISO3166-1"="${iso}"][admin_level=2]->.z;(node["amenity"="pharmacy"](area.z);way["amenity"="pharmacy"](area.z);node["shop"="chemist"](area.z);way["shop"="chemist"](area.z););out center tags;`;
   for (const ep of OVERPASS) {
     try {
       console.log(`Téléchargement OpenStreetMap (${iso}) via`, new URL(ep).host, '…');
@@ -109,8 +110,10 @@ const normalise = (el) => {
   const t = el.tags || {};
   const lat = el.lat != null ? el.lat : el.center && el.center.lat;
   const lon = el.lon != null ? el.lon : el.center && el.center.lon;
+  const para = t.amenity !== 'pharmacy'; // shop=chemist : parapharmacie (sans pharmacien, pas de médicaments)
   return {
-    name: t.name || 'Pharmacie',
+    ...(para ? { type: 'para' } : {}),
+    name: t.name || (para ? 'Parapharmacie' : 'Pharmacie'),
     addr: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '),
     phone: t.phone || t['contact:phone'] || '',
     lat, lon,

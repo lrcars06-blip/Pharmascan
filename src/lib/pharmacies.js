@@ -41,8 +41,8 @@ const withDistance = (list, lat, lon) => list
   .map((p) => ({ ...p, dist: distanceKm(lat, lon, p.lat, p.lon) }))
   .sort((a, b) => a.dist - b.dist);
 
-const meta = () => getJSON('/data/pharmacies/meta.json');
-const dept = (code) => getJSON(`/data/pharmacies/${code}.json`);
+export const meta = () => getJSON('/data/pharmacies/meta.json');
+export const dept = (code) => getJSON(`/data/pharmacies/${code}.json`);
 const deptOf = (insee) => (insee === 'MC' ? 'MC' : /^9[78]/.test(insee) ? insee.slice(0, 3) : insee.slice(0, 2));
 
 async function parCommune(insee) {

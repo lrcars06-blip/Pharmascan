@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { searchCommunes, findPharmacies, locate } from '../lib/pharmacies.js';
-import { Empty } from './Common.jsx';
+import { navigate } from '../lib/route.js';
+import { Empty, Segmented } from './Common.jsx';
 import { Phone, Pin, Route, Search, Close, Locate, Alert } from '../lib/icons.jsx';
+
+// Leaflet (≈ 45 Ko) n'est téléchargé qu'à l'ouverture de la carte.
+const Carte = lazy(() => import('./Carte.jsx'));
 
 const itineraire = (p) => `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
 const distance = (km) => (km < 1 ? `${Math.max(10, Math.round(km * 100) * 10)} m` : `${km.toFixed(1).replace('.', ',')} km`);
 const tel = (phone) => (phone || '').split(/[;,/]/)[0].replace(/[^\d+]/g, '');
 
-export default function PharmaSection() {
+export default function PharmaSection({ sub, active }) {
+  const shown = useRef(sub);
+  if (active) shown.current = sub;
+  const view = shown.current === 'carte' ? 'carte' : 'liste';
+  const [mapOpened, setMapOpened] = useState(view === 'carte');
+  if (view === 'carte' && !mapOpened) setMapOpened(true);
+  const [focus, setFocus] = useState(null); // dernier lieu cherché : la carte s'y recentre
   const [city, setCity] = useState('');
   const [sugg, setSugg] = useState([]);
   const [hl, setHl] = useState(0);                       // suggestion surlignée au clavier
@@ -30,6 +40,7 @@ export default function PharmaSection() {
 
   async function run(place, label) {
     setSugg([]);
+    setFocus({ lat: place.lat, lon: place.lon });
     setState({ status: 'loading', label });
     try {
       const res = await findPharmacies(place);
@@ -83,8 +94,18 @@ export default function PharmaSection() {
   return (
     <section>
       <h1 className="title">Pharmacies et garde</h1>
-      <p className="lead">Les pharmacies d'une commune ou autour de vous, et le service de garde.</p>
+      <p className="lead">Les pharmacies d'une commune, autour de vous ou sur la carte, et le service de garde.</p>
 
+      <Segmented label="Affichage" value={view} options={[['liste', 'Liste'], ['carte', 'Carte de France']]}
+        onChange={(v) => navigate(v === 'carte' ? 'pharmacies/carte' : 'pharmacies', { replace: true })} />
+
+      {mapOpened && (
+        <div hidden={view !== 'carte'} className="mb">
+          <Suspense fallback={<div className="skeleton map" />}><Carte focus={focus} visible={view === 'carte' && active} /></Suspense>
+        </div>
+      )}
+
+      <div hidden={view !== 'liste'}>
       <form className="search" role="search" onSubmit={submit}>
         <Search size={19} />
         <input ref={inputRef} className="input" type="search" enterKeyHint="search" autoComplete="off" autoCorrect="off"
@@ -131,7 +152,7 @@ export default function PharmaSection() {
                   <div className="row" key={i}>
                     <span className="pin"><Pin size={18} /></span>
                     <div className="body">
-                      <div className="name">{p.name}</div>
+                      <div className="name">{p.name}{p.type === 'para' && <span className="tag info" style={{ marginLeft: 8 }}>Parapharmacie</span>}</div>
                       <div className="sub">{[p.addr, s.mode !== 'commune' && p.ville].filter(Boolean).join(', ') || p.ville || s.label}</div>
                       <div className="dist num">{distance(p.dist)}{s.mode === 'commune' ? ' du centre' : ''}</div>
                     </div>
@@ -145,6 +166,8 @@ export default function PharmaSection() {
           </>
         )
       )}
+
+      </div>
 
       <aside className="card garde">
         <h2 className="h2">Pharmacie de garde</h2>

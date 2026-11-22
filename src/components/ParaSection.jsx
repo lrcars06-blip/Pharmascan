@@ -25,7 +25,8 @@ export default function ParaSection({ sub, active }) {
   async function search(raw) {
     const c = parseCode(raw);
     if (c.type === 'empty') return setState({ status: 'idle' });
-    if (c.type === 'cip') return setState({ status: 'medicament', cip7: c.cip7 });
+    // Code de médicament : on ouvre directement sa fiche officielle.
+    if (c.type === 'cip') { setState({ status: 'idle' }); setCode(''); return navigate(`medicaments/${c.cip7}`); }
     if (c.type !== 'ean') return setState({ status: 'invalid' });
     const id = ++seq.current;
     setState({ status: 'loading' });
@@ -92,6 +93,7 @@ export default function ParaSection({ sub, active }) {
           {state.status === 'notfound' && (
             <Empty icon={<Help size={26} />} title="Produit absent des bases ouvertes">
               <p>Le code <span className="code">{state.code}</span> n'est référencé dans aucune des trois bases. La composition figure sur l'emballage.</p>
+              <a className="btn btn-outline mt" href={`https://fr.openbeautyfacts.org/cgi/product.pl?code=${state.code}`} target="_blank" rel="noreferrer">Ajouter ce produit à Open Beauty Facts</a>
             </Empty>
           )}
           {state.status === 'error' && (
