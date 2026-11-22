@@ -5,6 +5,7 @@ import { Disclaimer, Empty } from './Common.jsx';
 import { Shield, FileText, Plus, Check, ChevronLeft, Chevron, Help, Alert } from '../lib/icons.jsx';
 
 const euros = (n) => n.toFixed(2).replace('.', ',') + ' €';
+const SMR = { Important: 'ok', 'Modéré': 'info', Faible: 'warn', Insuffisant: 'danger' };
 const DISPO = { 1: 'danger', 2: 'warn', 3: 'neutral', 4: 'ok' }; // rupture, tension, arrêt, remise à disposition
 
 export default function MedFiche({ cis, scan, meta, onBack, onOpen, onSeen }) {
@@ -120,6 +121,20 @@ export default function MedFiche({ cis, scan, meta, onBack, onOpen, onSeen }) {
               <dd className="meta">Aucune rupture ni tension d'approvisionnement signalée par l'ANSM{date ? ` au ${date}` : ''}. Cela ne garantit pas le stock de votre pharmacie.</dd>
             )}
           </div>
+
+          {f.smr && (
+            <div className="fact">
+              <dt>Service médical rendu, évalué par la Haute Autorité de santé</dt>
+              {f.smr.map((a, i) => (
+                <dd key={i}>
+                  <span className={'tag ' + (SMR[a.niveau.split(' ')[0]] || 'neutral')}>{a.niveau}</span>
+                  {a.texte && <p className="small mt-s">{a.texte}</p>}
+                  <p className="small">Avis du {a.date}. {a.lien && <a href={a.lien} target="_blank" rel="noreferrer">Lire l'avis sur has-sante.fr</a>}</p>
+                </dd>
+              ))}
+              <dd className="small">Ce niveau mesure l'intérêt du médicament dans une indication donnée ; il sert à décider de son remboursement.</dd>
+            </div>
+          )}
 
           {f.conditions?.length > 0 && (
             <div className="fact">

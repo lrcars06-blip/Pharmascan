@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { conseilIA } from '../lib/api.js';
-import { addMed } from '../lib/storage.js';
+import { addMed, loadArmoire } from '../lib/storage.js';
 import { Check, Plus, Alert } from '../lib/icons.jsx';
 
 // Besoins sélectionnables (plusieurs à la fois)
@@ -25,6 +25,7 @@ export default function ConseilIA() {
   const [added, setAdded] = useState(() => new Set());
   const [selection, setSelection] = useState(() => new Set());
   const endRef = useRef(null);
+  const traitement = loadArmoire().some((x) => x.cis); // des médicaments sont enregistrés dans l'armoire
 
   const toggle = (label) => setSelection((prev) => {
     const next = new Set(prev);
@@ -89,6 +90,12 @@ export default function ConseilIA() {
         </div>
       )}
 
+      {traitement && (
+        <div className="notice warn"><Alert size={17} />
+          <p>Votre armoire contient des médicaments. Un complément alimentaire peut interagir avec un traitement : montrez-le à votre pharmacien avant de le prendre.</p>
+        </div>
+      )}
+
       <div className="thread" aria-live="polite">
         {messages.map((m, i) => (
           <div key={i} className="stack" style={{ gap: 8 }}>
@@ -129,7 +136,7 @@ export default function ConseilIA() {
         <button className="btn btn-primary" type="submit" disabled={loading || !input.trim()}>Envoyer</button>
       </form>
 
-      <p className="small mt">Suggestions de parapharmacie uniquement, générées automatiquement. Elles ne remplacent jamais l'avis d'un pharmacien ou d'un médecin.</p>
+      <p className="small mt">Suggestions de parapharmacie uniquement (cosmétiques, hygiène, compléments alimentaires), générées automatiquement. Aucun médicament, aucun diagnostic. Suivez l'étiquette du produit et demandez l'avis de votre pharmacien.</p>
     </div>
   );
 }

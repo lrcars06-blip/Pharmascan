@@ -75,9 +75,10 @@ const taux = (s) => clean(s).replace(/\s*%/, ' %');
 
 async function main() {
   console.log('BDPM : téléchargement des fichiers officiels…');
-  const [cis, cip, compo, gener, cpd, dispo] = await Promise.all([
+  const [cis, cip, compo, gener, cpd, dispo, smr, liensCT] = await Promise.all([
     download('CIS_bdpm.txt'), download('CIS_CIP_bdpm.txt'), download('CIS_COMPO_bdpm.txt'),
     download('CIS_GENER_bdpm.txt'), download('CIS_CPD_bdpm.txt'), download('CIS_CIP_Dispo_Spec.txt'),
+    download('CIS_HAS_SMR_bdpm.txt').catch(() => []), download('HAS_LiensPageCT_bdpm.txt').catch(() => []),
   ]);
 
   // Garde-fous : si le format officiel change, on s'arrête au lieu de publier une base fausse.
@@ -167,6 +168,25 @@ async function main() {
     signalements += f.disponibilite.length;
   }
 
+  // Service médical rendu : avis de la Haute Autorité de santé (le plus récent par médicament)
+  const lienCT = new Map(liensCT.map((r) => [r[0], r[1]]));
+  const texte = (t) => { const c = clean((t || '').replace(/<[^>]+>/g, ' ')); return c.length > 320 ? c.slice(0, 317).replace(/\s+\S*$/, '') + '…' : c; };
+  const NIVEAUX = /^(Important|Modéré|Faible|Insuffisant)/;
+  const avis = new Map();
+  for (const r of smr) {
+    if (!fiches.has(r[0]) || !/^\d{8}$/.test(r[3] || '') || !NIVEAUX.test(r[4] || '')) continue;
+    const a = avis.get(r[0]);
+    if (!a || r[3] > a.jour) avis.set(r[0], { jour: r[3], items: [r] });
+    else if (r[3] === a.jour && a.items.length < 2) a.items.push(r);
+  }
+  for (const [id, a] of avis) {
+    fiches.get(id).smr = a.items.map((r) => {
+      const o = { niveau: clean(r[4]), date: `${r[3].slice(6)}/${r[3].slice(4, 6)}/${r[3].slice(0, 4)}`, texte: texte(r[5]) };
+      if (/^https:\/\/www\.has-sante\.fr\//.test(lienCT.get(r[1]) || '')) o.lien = lienCT.get(r[1]);
+      return o;
+    });
+  }
+
   // --- Index de recherche (compact) ---
   const formes = [], titulaires = [];
   const idxOf = (arr, map, v) => { if (!map.has(v)) { map.set(v, arr.length); arr.push(v); } return map.get(v); };
@@ -197,7 +217,7 @@ async function main() {
   writeFileSync(join(TMP, 'index.json'), JSON.stringify({ formes, titulaires, rows }));
   const meta = {
     genere_le: new Date().toISOString().slice(0, 10),
-    specialites: fiches.size, presentations: cipMap.size, groupes: groupes.size, signalements,
+    specialites: fiches.size, presentations: cipMap.size, groupes: groupes.size, signalements, avisHAS: avis.size,
     source: 'Base de données publique des médicaments (BDPM) — ANSM, HAS, UNCAM',
   };
   writeFileSync(join(TMP, 'meta.json'), JSON.stringify(meta));

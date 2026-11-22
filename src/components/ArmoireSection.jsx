@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadArmoire, addMed, removeMed, updateMed, toggleReminder, isExpiringSoon, isExpired, formatDate, onArmoireChange } from '../lib/storage.js';
 import { navigate } from '../lib/route.js';
+import { getFiche } from '../lib/bdpm.js';
+import { downloadCalendar, armoireText } from '../lib/calendar.js';
 import { Segmented, Empty } from './Common.jsx';
 import FicheMedicale from './FicheMedicale.jsx';
-import { Trash, Plus, Alert, Box, Edit } from '../lib/icons.jsx';
+import { Trash, Plus, Alert, Box, Edit, Clock, Share } from '../lib/icons.jsx';
 
 const CATEGORIES = [
   ['douleur', 'Douleur'], ['fievre', 'Fièvre'], ['digestion', 'Digestion'], ['allergie', 'Allergie'],
@@ -24,6 +26,32 @@ export default function ArmoireSection({ sub, active }) {
 
   // L'armoire reste affichée en arrière-plan : elle se met à jour quand un autre écran y ajoute un produit.
   useEffect(() => onArmoireChange(() => setItems(loadArmoire())), []);
+
+  // Ruptures et tensions officielles (ANSM) sur les médicaments de l'armoire
+  const [dispo, setDispo] = useState({});
+  const [flash, setFlash] = useState('');
+  const cisList = items.map((it) => it.cis).filter(Boolean).join(',');
+  useEffect(() => {
+    let stale = false;
+    Promise.all(cisList.split(',').filter(Boolean).map((cis) => getFiche(cis).then((f) => [cis, f && (f.disponibilite || []).find((d) => d.code === 1 || d.code === 2)]).catch(() => [cis, null])))
+      .then((pairs) => { if (!stale) setDispo(Object.fromEntries(pairs.filter(([, d]) => d))); });
+    return () => { stale = true; };
+  }, [cisList]);
+
+  const say = (msg) => { setFlash(msg); setTimeout(() => setFlash(''), 4000); };
+
+  function exportCalendar() {
+    const n = downloadCalendar(items);
+    say(n ? `${n} rappel${n > 1 ? 's' : ''} prêt${n > 1 ? 's' : ''} : ouvrez le fichier pour l'ajouter à votre agenda.` : 'Rien à exporter : renseignez une date de péremption ou cochez une prise.');
+  }
+
+  async function shareList() {
+    const text = armoireText(items);
+    if (navigator.share) { try { await navigator.share({ title: 'Mes médicaments', text }); return; } catch { /* annulé → copie */ } }
+    try { await navigator.clipboard.writeText(text); say('Liste copiée.'); } catch { say('Copie impossible sur ce navigateur.'); }
+  }
+
+  const tensions = Object.keys(dispo).length;
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -61,6 +89,12 @@ export default function ArmoireSection({ sub, active }) {
         {soon.length > 0 && (
           <div className="notice warn"><Alert size={17} />
             <p><b>{soon.length} produit{soon.length > 1 ? 's' : ''}</b> arrive{soon.length > 1 ? 'nt' : ''} à péremption dans les 30 jours.</p>
+          </div>
+        )}
+
+        {tensions > 0 && (
+          <div className="notice warn"><Alert size={17} />
+            <p><b>{tensions} médicament{tensions > 1 ? 's' : ''} de votre armoire</b> {tensions > 1 ? 'font' : 'fait'} l'objet d'une rupture ou d'une tension signalée par l'ANSM. Anticipez le renouvellement avec votre pharmacien.</p>
           </div>
         )}
 
@@ -119,6 +153,7 @@ export default function ArmoireSection({ sub, active }) {
                   <div className="tags mt-s">
                     <span className="tag neutral">{CAT_LABEL[it.category] || 'Autre'}</span>
                     {it.quantity > 1 && <span className="tag neutral num">× {it.quantity}</span>}
+                    {dispo[it.cis] && <span className="tag warn">{dispo[it.cis].statut}</span>}
                     {it.expirationDate && (
                       <span className={'tag num ' + (out ? 'danger' : near ? 'warn' : 'ok')}>
                         {out ? 'Périmé depuis le' : 'Périme le'} {formatDate(it.expirationDate)}
@@ -154,7 +189,14 @@ export default function ArmoireSection({ sub, active }) {
         })}
 
         {items.length > 0 && (
-          <p className="small mt">Les prises cochées servent de pense-bête. Les notifications de rappel ne sont pas encore disponibles.</p>
+          <>
+            <div className="stack mt">
+              <button className="btn btn-outline" onClick={exportCalendar}><Clock size={18} /> Recevoir les rappels dans mon agenda</button>
+              <button className="btn btn-outline" onClick={shareList}><Share size={18} /> Partager ma liste de médicaments</button>
+            </div>
+            {flash && <p className="notice ok mt-s" role="status" style={{ marginBottom: 0 }}>{flash}</p>}
+            <p className="small mt">L'agenda de votre téléphone vous alerte 30 jours avant chaque péremption et à l'heure des prises cochées (8 h, 12 h 30, 20 h). Rien n'est envoyé à un serveur.</p>
+          </>
         )}
       </div>
     </section>

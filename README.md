@@ -48,6 +48,7 @@ Navigateur (React + Vite + PWA)
 - `src/lib/bdpm.js` — recherche et fiches médicaments (dans le navigateur)
 - `src/lib/codes.js` — lecture des codes scannés (DataMatrix GS1, CIP 13, CIP 7, EAN)
 - `src/lib/pharmacies.js` — pharmacies par commune ou par rayon, communes
+- `src/lib/calendar.js` — rappels de péremption et de prise exportés vers l'agenda du téléphone (.ics), liste partageable
 - `src/lib/storage.js` — armoire, fiche d'urgence, historique (stockage local de l'appareil)
 - `src/components/Carte.jsx` — carte interactive des pharmacies (chargée à la demande)
 - `index.html` — contient l'animation d'arrivée (une fois par session, un toucher la passe)
@@ -71,7 +72,8 @@ Le script BDPM contrôle le format des fichiers officiels avant d'écrire quoi q
 ## Feuille de route
 
 - [ ] **Notice officielle structurée** (posologie, contre-indications, effets indésirables) — la fiche renvoie aujourd'hui à la notice officielle.
-- [ ] **Rappels par notification** — les prises cochées dans l'armoire sont un pense-bête, sans notification.
+- [ ] **Notifications push** — les rappels passent aujourd'hui par l'agenda du téléphone (fichier .ics) ; de vraies notifications demandent un serveur.
+- [ ] **Rappels de lots** — croiser les lots scannés avec les rappels ANSM (pas de flux exploitable trouvé à ce jour).
 - [ ] **Comptes utilisateurs** — pour synchroniser l'armoire entre appareils.
 - [ ] **OCR d'ordonnance** — modèle de vision côté serveur (donnée de santé sensible).
 - [ ] **Limite d'appels sur `/api/conseil`** — la route est publique et chaque appel coûte ; à protéger avant d'ouvrir largement.
